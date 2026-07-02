@@ -289,21 +289,6 @@
   .legend-dot.session{ background:#fbf0da; border:2px solid var(--gold); }
   .legend-dot.attending{ background:#c9ecd7; border:2px solid var(--court-green); }
 
-  /* ---------- CONTROLS ---------- */
-  .controls{
-    display:flex; gap:8px; background:var(--card); padding:14px;
-    border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,0.08); margin-top:14px;
-    border:1px solid var(--line);
-  }
-  .control-btn{
-    flex:1; padding:11px 14px; border:none; border-radius:8px;
-    font-weight:700; font-size:12.5px; cursor:pointer; transition:all .2s;
-  }
-  .control-btn.export{ background:var(--paper); color:var(--court-green-dark); border:1px solid var(--line); }
-  .control-btn.export:hover{ background:#f0e6d0; }
-  .control-btn.clear{ background:#fbe3dc; color:var(--tandoori-dark); }
-  .control-btn.clear:hover{ background:#f6cdbf; }
-
   .footer-note{
     text-align:center; color:var(--tandoori-dark); font-size:13px; margin-top:24px; opacity:1; font-style:italic; font-weight:600;
   }
@@ -357,11 +342,6 @@
       <div class="legend-item"><div class="legend-dot session"></div><span>🏸 Session available</span></div>
       <div class="legend-item"><div class="legend-dot attending"></div><span>✓ You're in</span></div>
     </div>
-  </div>
-
-  <div class="controls">
-    <button class="control-btn export" onclick="exportData()">📥 Export Data</button>
-    <button class="control-btn clear" onclick="clearAllData()">🗑️ Reset Group Data</button>
   </div>
 
   <p class="footer-note">🍛 🌮 🍺 - the real MVPs of every session</p>
@@ -620,34 +600,6 @@ async function toggleAttendance(){
 
   closeModal();
   renderCalendar();
-}
-
-/* ============ EXPORT / CLEAR ============ */
-function exportData(){
-  const sessions = Array.from(SESSIONS).sort();
-
-  const csv = [['Date','Day','Confirmed Attendees'].join(',')];
-  sessions.forEach(key => {
-    const [y,m,d] = key.split('-').map(Number);
-    const dt = new Date(y, m-1, d);
-    const attendees = attendanceCache[key] || [];
-    csv.push([
-      dt.toLocaleDateString('en-AU', { year:'numeric', month:'short', day:'numeric' }),
-      dt.toLocaleDateString('en-AU', { weekday:'short' }),
-      attendees.join('; ')
-    ].join(','));
-  });
-
-  const blob = new Blob([csv.join('\n')], { type:'text/csv' });
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `gabru-badminton-attendance-${new Date().toISOString().split('T')[0]}.csv`;
-  a.click();
-  window.URL.revokeObjectURL(url);
-}
-function clearAllData(){
-  alert('Group attendance data can only be cleared by the organizer directly in Netlify (Blobs store), to avoid one person accidentally wiping everyone\\'s RSVPs.');
 }
 
 /* ============ INIT ============ */

@@ -364,7 +364,7 @@
     <button class="control-btn clear" onclick="clearAllData()">🗑️ Reset Group Data</button>
   </div>
 
-  <p class="footer-note">🍛 🌮 🍺 — the real MVPs of every session</p>
+  <p class="footer-note">🍛 🌮 🍺 - the real MVPs of every session</p>
 </div>
 
 <div class="session-modal" id="sessionModal">
@@ -449,7 +449,7 @@ async function postAttendance(sessionKey, name, action){
   } catch (err) {
     console.error('Update error:', err);
     setSyncStatus('error');
-    alert('Could not save — check your connection and try again.');
+    alert('Could not save - check your connection and try again.');
   }
   return attendanceCache;
 }
@@ -465,7 +465,7 @@ function setSyncStatus(state){
     el.style.opacity = '0.85';
     setTimeout(() => { if (el.textContent === '✓ Synced with group') el.style.opacity = '0.5'; }, 2000);
   } else if (state === 'error'){
-    el.textContent = '⚠ Sync failed — retrying…';
+    el.textContent = '⚠ Sync failed - retrying…';
     el.style.opacity = '1';
   }
 }

@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Gabru Badminton</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+
+  :root{
+    --ink:#1b1410;
+    --paper:#faf3e8;
+    --card:#fffdf9;
+    --court-green:#1f6f4a;
+    --court-green-dark:#154f34;
+    --tandoori:#c9522b;
+    --tandoori-dark:#a13e1e;
+    --gold:#e0a638;
+    --line:#e7dcc8;
+    --muted:#8a7d6a;
+    --red:#dc2626;
+    --amber:#e0a638;
+    --green:#16a34a;
+  }
+
+  body{
+    font-family:'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+    background: linear-gradient(180deg, var(--court-green-dark) 0%, var(--court-green) 260px, var(--paper) 260px);
+    min-height:100vh;
+    padding:20px 16px 60px;
+    color:var(--ink);
+  }
+
+  .container{ max-width:820px; margin:0 auto; }
+  .hidden{ display:none !important; }
+
+  .gate-screen{ min-height:80vh; display:flex; align-items:center; justify-content:center; }
+  .gate-card{
+    background:var(--card); border-radius:16px; padding:32px 26px; max-width:360px; width:100%;
+    text-align:center; box-shadow:0 20px 50px rgba(0,0,0,0.3); border:1px solid var(--line);
+  }
+  .gate-card .shuttle-icon{ font-size:44px; display:block; margin-bottom:10px; }
+  .gate-card h2{ font-family:Georgia, serif; font-size:22px; margin-bottom:6px; color:var(--ink); }
+  .gate-card p{ font-size:13px; color:var(--muted); margin-bottom:20px; font-style:italic; }
+  .gate-card input{
+    width:100%; padding:13px 14px; border:2px solid var(--line); border-radius:9px;
+    font-size:16px; margin-bottom:12px; text-align:center; letter-spacing:1px;
+  }
+  .gate-card input:focus{ outline:none; border-color:var(--tandoori); }
+  .gate-card button{
+    width:100%; padding:13px; background:var(--court-green); color:#fff; border:none;
+    border-radius:9px; font-weight:700; font-size:15px; cursor:pointer; min-height:48px;
+  }
+  .gate-card button:hover{ background:var(--court-green-dark); }
+  .gate-error{ color:var(--red); font-size:13px; margin-top:10px; min-height:16px; font-weight:600; }
+
+  .player-grid{
+    display:grid; grid-template-columns:repeat(2, 1fr); gap:10px; margin-bottom:16px; max-height:280px; overflow-y:auto;
+  }
+  .player-chip{
+    padding:14px 10px; background:var(--paper); border:2px solid var(--line); border-radius:10px;
+    font-weight:700; font-size:14px; color:var(--ink); cursor:pointer; text-align:center; min-height:48px;
+    display:flex; align-items:center; justify-content:center; transition:all .15s;
+  }
+  .player-chip:hover{ border-color:var(--court-green); background:#eef8f1; }
+  .player-chip:active{ transform:scale(0.96); }
+  .player-grid-empty{ grid-column:1/-1; color:var(--muted); font-style:italic; font-size:13px; padding:12px 0; }
+  .picker-add{ display:flex; gap:8px; border-top:1px solid var(--line); padding-top:14px; }
+  .picker-add input{
+    flex:1; padding:12px 12px; border:2px solid var(--line); border-radius:9px; font-size:15px; min-height:46px;
+  }
+  .picker-add input:focus{ outline:none; border-color:var(--tandoori); }
+  .picker-add button{
+    padding:12px 16px; background:var(--tandoori); color:#fff; border:none; border-radius:9px;
+    font-weight:700; font-size:13px; cursor:pointer; min-height:46px; white-space:nowrap;
+  }
+  .picker-add button:hover{ background:var(--tandoori-dark); }
+  .switch-player-link{
+    display:block; text-align:center; margin-top:6px; font-size:11.5px; color:#fff6e5; opacity:0.7;
+    text-decoration:underline; cursor:pointer; background:none; border:none;
+  }
+
+  .header{ text-align:center; padding:22px 16px 24px; position:relative; }
+  .header h1{
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size:38px; font-weight:700; color:#fff; letter-spacing:-0.5px;
+    display:flex; align-items:center; justify-content:center; gap:12px;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.25);
+  }
+  .header .shuttle-icon{ font-size:36px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3)); }
+  .header .tagline{
+    margin-top:10px; font-size:14px; font-style:italic; color:#fff6e5; font-weight:600;
+    letter-spacing:0.2px; text-shadow: 0 1px 6px rgba(0,0,0,0.35);
+  }
+  .sync-status{ margin-top:8px; font-size:11.5px; color:#fff6e5; opacity:0.5; transition:opacity .3s; font-weight:600; }
+
+  .admin-badge{
+    display:inline-block; margin-top:8px; background:var(--gold); color:#3a2a0a;
+    font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; letter-spacing:0.3px;
+  }
+
+  .input-bar{
+    background:var(--card); border-radius:14px; padding:14px; margin:-6px auto 16px;
+    max-width:520px; box-shadow:0 12px 30px rgba(21,79,52,0.25); display:flex; gap:8px;
+    border:1px solid var(--line);
+  }
+  .input-bar input{
+    flex:1; padding:13px 14px; border:2px solid var(--line); border-radius:9px;
+    font-size:16px; font-family:inherit; background:#fff; min-height:48px;
+  }
+  .input-bar input:focus{ outline:none; border-color:var(--tandoori); }
+  .input-bar button{
+    padding:13px 20px; background:var(--tandoori); color:#fff; border:none; border-radius:9px;
+    font-weight:700; font-size:14px; cursor:pointer; white-space:nowrap; min-height:48px; min-width:48px;
+  }
+  .input-bar button:hover{ background:var(--tandoori-dark); }
+
+  .view-tabs{
+    display:flex; gap:6px; margin-bottom:16px; background:var(--card);
+    padding:6px; border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,0.08); border:1px solid var(--line);
+  }
+  .view-tab{
+    flex:1; padding:12px 8px; border:none; background:transparent; border-radius:8px;
+    font-weight:700; font-size:13px; color:var(--muted); cursor:pointer; min-height:44px; transition:all .2s;
+  }
+  .view-tab.active{ background:var(--court-green); color:#fff; }
+
+  .month-navigation{
+    display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;
+    background:var(--card); padding:12px 14px; border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,0.08);
+    border:1px solid var(--line);
+  }
+  .month-nav-btn{
+    background:var(--paper); border:1px solid var(--line); padding:12px 16px; border-radius:8px;
+    cursor:pointer; font-weight:700; color:var(--court-green-dark); font-size:13px; min-height:44px; min-width:44px;
+  }
+  .month-nav-btn:hover{ background:var(--gold); border-color:var(--gold); color:#fff; }
+  .month-title{ font-size:18px; font-weight:700; color:var(--ink); font-family: Georgia, serif; }
+
+  .calendar{
+    background:var(--card); border-radius:14px; overflow:hidden; box-shadow:0 10px 34px rgba(0,0,0,0.12);
+    border:1px solid var(--line); margin-bottom:20px;
+  }
+  .weekday-header{ display:grid; grid-template-columns:repeat(7,1fr); background: var(--court-green-dark); }
+  .weekday{ padding:12px 4px; text-align:center; font-weight:700; font-size:11px; color:#fff; text-transform:uppercase; letter-spacing:0.6px; }
+  .days-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:5px; padding:7px; background: var(--paper); }
+
+  .day-cell{
+    aspect-ratio:1; display:flex; flex-direction:column; padding:5px 4px 6px; border-radius:9px;
+    background:#fff; border:1px solid var(--line); position:relative; min-height:64px; overflow:hidden;
+  }
+  .day-cell.other-month{ background:transparent; border-color:transparent; opacity:0.35; }
+  .day-cell.other-month .day-number{ color:var(--muted); }
+
+  .day-cell .bg-motif{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-size:28px; opacity:0.22; pointer-events:none; transform:rotate(-8deg);
+  }
+
+  .day-cell.session{
+    background: linear-gradient(150deg, #ffffff 0%, #fbf0da 100%); border:2px solid var(--gold);
+    cursor:pointer; transition:transform .15s, box-shadow .15s; min-height:72px;
+  }
+  .day-cell.session:active{ transform:scale(0.96); }
+  .day-cell.session:hover{ box-shadow:0 8px 18px rgba(224,166,56,0.35); }
+  .day-cell.session.attending{
+    background: linear-gradient(150deg, #e5f6ec 0%, #c9ecd7 100%); border-color: var(--court-green);
+  }
+  .day-cell.session.full{ border-color: var(--green); border-width:2.5px; }
+  .day-cell.session.cancelled{
+    background: linear-gradient(150deg, #f3f0ec 0%, #e5e0d8 100%);
+    border:2px dashed var(--muted);
+    cursor:pointer;
+  }
+  .cancelled-badge{
+    font-size:8px; font-weight:800; color:var(--tandoori-dark); text-transform:uppercase;
+    letter-spacing:0.4px; margin-top:auto; text-align:center; line-height:1.3;
+  }
+
+  .day-number{ font-weight:700; font-size:12.5px; color:var(--ink); z-index:1; }
+  .day-label{ font-size:9px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:0.3px; z-index:1; }
+  .session-tag{ font-size:14px; margin-top:1px; z-index:1; }
+  .attendee-count{ font-size:9.5px; font-weight:700; color:var(--tandoori); margin-top:auto; z-index:1; }
+  .day-cell.session.attending .attendee-count{ color:var(--court-green-dark); }
+
+  .checkmark{
+    position:absolute; top:3px; right:3px; width:17px; height:17px; background:var(--court-green);
+    color:#fff; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-size:10px; font-weight:700; opacity:0; transition:opacity .2s; z-index:2;
+  }
+  .day-cell.session.attending .checkmark{ opacity:1; }
+
+  .capacity-dot{
+    position:absolute; top:3px; left:3px; width:10px; height:10px; border-radius:50%; z-index:2;
+    box-shadow:0 0 0 1.5px rgba(255,255,255,0.8);
+  }
+  .capacity-dot.red{ background:var(--red); }
+  .capacity-dot.amber{ background:var(--amber); }
+  .capacity-dot.green{ background:var(--green); }
+
+  .session-modal{
+    display:none; position:fixed; inset:0; background:rgba(27,20,16,0.55); z-index:1000;
+    align-items:center; justify-content:center; padding:16px; backdrop-filter: blur(2px);
+  }
+  .session-modal.open{ display:flex; }
+  .modal-content{
+    background:var(--card); border-radius:16px; padding:24px; max-width:400px; width:100%;
+    box-shadow:0 24px 60px rgba(0,0,0,0.35); border:1px solid var(--line); max-height:85vh; overflow-y:auto;
+  }
+  .modal-header{ margin-bottom:4px; font-size:18px; font-weight:700; color:var(--ink); font-family:Georgia, serif; }
+  .modal-sub{ font-size:12px; color:var(--muted); margin-bottom:6px; font-style:italic; }
+  .modal-capacity{ font-size:13px; font-weight:700; margin-bottom:14px; display:flex; align-items:center; gap:6px; }
+  .modal-capacity .dot{ width:10px; height:10px; border-radius:50%; }
+  .modal-attendees{ list-style:none; margin-bottom:18px; max-height:180px; overflow-y:auto; }
+  .modal-attendees li{
+    padding:10px 12px; background:var(--paper); border-radius:7px; margin-bottom:7px;
+    font-size:14px; color:var(--ink); display:flex; align-items:center; justify-content:space-between; gap:8px;
+  }
+  .modal-attendees li .name{ display:flex; align-items:center; gap:8px; }
+  .modal-attendees li .name::before{ content:"✓"; color:var(--court-green); font-weight:700; font-size:15px; }
+  .modal-attendees li .remove-btn{
+    background:none; border:none; color:var(--muted); font-size:16px; cursor:pointer; padding:4px 8px; min-height:32px; min-width:32px;
+  }
+  .modal-attendees li .remove-btn:hover{ color:var(--red); }
+  .modal-empty{ color:var(--muted); font-size:13.5px; font-style:italic; padding:16px 0; text-align:center; }
+  .modal-buttons{ display:flex; gap:8px; }
+  .modal-btn{ flex:1; padding:13px; border:none; border-radius:9px; font-weight:700; font-size:14px; cursor:pointer; min-height:48px; }
+  .modal-btn.confirm{ background:var(--court-green); color:#fff; }
+  .modal-btn.confirm:hover{ background:var(--court-green-dark); }
+  .modal-btn.confirm:disabled{ background:var(--muted); cursor:not-allowed; }
+  .modal-btn.cancel-attend{ background:var(--tandoori); color:#fff; }
+  .modal-btn.cancel-attend:hover{ background:var(--tandoori-dark); }
+  .modal-btn.close{ background:var(--line); color:var(--ink); }
+  .modal-btn.close:hover{ background:#ddd0b5; }
+  .full-warning{ font-size:12.5px; color:var(--tandoori-dark); margin-bottom:10px; font-weight:600; }
+  .guest-add-section{ display:flex; gap:8px; margin-bottom:14px; border-top:1px solid var(--line); padding-top:14px; }
+  .guest-add-section input{
+    flex:1; padding:11px 12px; border:2px solid var(--line); border-radius:8px; font-size:14px; min-height:44px;
+  }
+  .guest-add-section button{
+    padding:11px 14px; background:var(--gold); color:#3a2a0a; border:none; border-radius:8px;
+    font-weight:700; font-size:12.5px; cursor:pointer; min-height:44px; white-space:nowrap;
+  }
+  .guest-add-section button:hover{ background:#c98f2a; }
+  .cancelled-banner{
+    background:#fbe3dc; color:var(--tandoori-dark); font-weight:700; font-size:13px;
+    padding:10px 14px; border-radius:8px; margin-bottom:14px; text-align:center;
+  }
+  .admin-cancel-section{ margin-bottom:14px; border-top:1px solid var(--line); padding-top:14px; }
+  .cancel-session-btn{
+    width:100%; padding:12px; background:#fff; border:2px solid var(--red); color:var(--red);
+    border-radius:9px; font-weight:700; font-size:13.5px; cursor:pointer; min-height:46px;
+  }
+  .cancel-session-btn:hover{ background:#fee2e2; }
+  .cancel-session-btn.is-cancelled{ border-color:var(--court-green); color:var(--court-green); }
+  .cancel-session-btn.is-cancelled:hover{ background:#dcfce7; }
+
+  .legend{ margin-top:18px; background:var(--card); padding:15px 18px; border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,0.08); border:1px solid var(--line); }
+  .legend h3{ font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:10px; }
+  .legend-items{ display:flex; gap:14px; flex-wrap:wrap; font-size:12px; }
+  .legend-item{ display:flex; align-items:center; gap:6px; }
+  .legend-dot{ width:12px; height:12px; border-radius:4px; }
+  .legend-dot.session{ background:#fbf0da; border:2px solid var(--gold); }
+  .legend-dot.attending{ background:#c9ecd7; border:2px solid var(--court-green); }
+  .legend-cap-dot{ width:10px; height:10px; border-radius:50%; }
+
+  .footer-note{ text-align:center; color:var(--tandoori-dark); font-size:12.5px; margin-top:22px; font-style:italic; font-weight:600; }
+
+  .whos-out{ background:var(--card); border-radius:14px; padding:18px; box-shadow:0 10px 34px rgba(0,0,0,0.12); border:1px solid var(--line); margin-bottom:20px; }
+  .whos-out h2{ font-family:Georgia, serif; font-size:19px; margin-bottom:14px; color:var(--ink); }
+  .out-session{ margin-bottom:18px; padding-bottom:16px; border-bottom:1px solid var(--line); }
+  .out-session:last-child{ border-bottom:none; margin-bottom:0; padding-bottom:0; }
+  .out-session-title{ font-weight:700; font-size:14.5px; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; }
+  .out-session-title .cap-info{ font-size:12px; font-weight:600; padding:3px 10px; border-radius:14px; }
+  .cap-info.red{ background:#fee2e2; color:var(--red); }
+  .cap-info.amber{ background:#fef3c7; color:#92600a; }
+  .cap-info.green{ background:#dcfce7; color:var(--green); }
+  .out-lists{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .out-col h4{ font-size:11px; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted); margin-bottom:6px; }
+  .out-col ul{ list-style:none; }
+  .out-col li{ font-size:13.5px; padding:4px 0; color:var(--ink); }
+  .out-col.in li::before{ content:"✓ "; color:var(--court-green); font-weight:700; }
+  .out-col .none{ color:var(--muted); font-style:italic; font-size:12.5px; }
+
+  .admin-panel{ background:var(--card); border-radius:14px; padding:18px; box-shadow:0 10px 34px rgba(0,0,0,0.12); border:1px solid var(--line); margin-bottom:20px; }
+  .admin-panel h2{ font-family:Georgia, serif; font-size:19px; margin-bottom:6px; color:var(--ink); }
+  .admin-panel .sub{ font-size:12.5px; color:var(--muted); margin-bottom:16px; }
+  .admin-section{ margin-bottom:20px; }
+  .admin-section h3{ font-size:12.5px; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted); margin-bottom:10px; }
+  .admin-list{ list-style:none; }
+  .admin-list li{
+    display:flex; justify-content:space-between; align-items:center; padding:10px 12px;
+    background:var(--paper); border-radius:8px; margin-bottom:8px; font-size:14px;
+  }
+  .admin-list li .tag{ font-size:11px; background:var(--gold); color:#3a2a0a; padding:2px 8px; border-radius:10px; font-weight:700; margin-left:8px; }
+  .admin-list li button{
+    background:none; border:1px solid var(--line); border-radius:7px; padding:8px 12px; font-size:12.5px;
+    cursor:pointer; color:var(--tandoori-dark); min-height:36px;
+  }
+  .admin-list li button:hover{ background:#fbe3dc; }
+  .admin-add{ display:flex; gap:8px; }
+  .admin-add input{ flex:1; padding:11px 12px; border:2px solid var(--line); border-radius:8px; font-size:14px; min-height:44px; }
+  .admin-add button{
+    padding:11px 16px; background:var(--court-green); color:#fff; border:none; border-radius:8px;
+    font-weight:700; font-size:13px; cursor:pointer; min-height:44px;
+  }
+  .admin-add button:hover{ background:var(--court-green-dark); }
+  .export-btn{
+    width:100%; padding:13px; background:var(--paper); border:1px solid var(--line); border-radius:9px;
+    font-weight:700; font-size:13.5px; color:var(--court-green-dark); cursor:pointer; min-height:48px;
+  }
+  .export-btn:hover{ background:#f0e6d0; }
+  .capacity-setting{ display:flex; align-items:center; gap:10px; }
+  .capacity-setting input{
+    width:70px; padding:11px; border:2px solid var(--line); border-radius:8px; font-size:15px; text-align:center; min-height:44px;
+  }
+  .capacity-setting button{
+    padding:11px 16px; background:var(--tandoori); color:#fff; border:none; border-radius:8px;
+    font-weight:700; font-size:13px; cursor:pointer; min-height:44px;
+  }
+  .capacity-setting button:hover{ background:var(--tandoori-dark); }
+
+  @media (max-width:600px){
+    .header h1{ font-size:27px; }
+    .header .shuttle-icon{ font-size:26px; }
+    .input-bar{ flex-direction:column; }
+    .out-lists{ grid-template-columns:1fr; }
+    .modal-content{ max-width:92vw; }
+  }
+
+  @media (prefers-reduced-motion: reduce){ * { transition:none !important; } }
+</style>
+</head>
+<body>
+
+<div class="gate-screen" id="gateScreen">
+  <div class="gate-card">
+    <span class="shuttle-icon">🏸</span>
+    <h2>Gabru Badminton</h2>
+    <p>The Chole Bhature is Real, The Attendance is Fiction</p>
+    <input type="password" id="gatePassword" placeholder="Enter group password" autocomplete="off">
+    <button onclick="checkPassword()">Enter</button>
+    <div class="gate-error" id="gateError"></div>
+  </div>
+</div>
+
+<div class="gate-screen hidden" id="pickerScreen">
+  <div class="gate-card" style="max-width:420px;">
+    <span class="shuttle-icon">🏸</span>
+    <h2>Who's this?</h2>
+    <p>Tap your name, or add yourself if you're new</p>
+    <div id="playerGrid" class="player-grid"></div>
+    <div class="picker-add">
+      <input type="text" id="newPlayerInput" placeholder="Your name" autocomplete="off">
+      <button onclick="addNewPlayer()">Add Me</button>
+    </div>
+  </div>
+</div>
+
+<div class="container hidden" id="mainApp">
+
+  <div class="header">
+    <h1><span class="shuttle-icon">🏸</span> Gabru Badminton</h1>
+    <p class="tagline">The Chole Bhature is Real, The Attendance is Fiction</p>
+    <p id="syncStatus" class="sync-status">🔄 Syncing…</p>
+    <div id="adminBadge"></div>
+    <button class="switch-player-link" onclick="switchPlayer()">Not you? Switch player</button>
+  </div>
+
+  <div class="view-tabs">
+    <button class="view-tab active" id="tabCalendar" onclick="switchView('calendar')">📅 Calendar</button>
+    <button class="view-tab" id="tabWhosOut" onclick="switchView('whosout')">👀 Who's Out</button>
+    <button class="view-tab hidden" id="tabAdmin" onclick="switchView('admin')">⚙️ Admin</button>
+  </div>
+
+  <div id="viewCalendar">
+    <div class="month-navigation">
+      <button class="month-nav-btn" onclick="previousMonth()">← Prev</button>
+      <div class="month-title" id="monthTitle"></div>
+      <button class="month-nav-btn" onclick="nextMonth()">Next →</button>
+    </div>
+
+    <div class="calendar">
+      <div class="weekday-header">
+        <div class="weekday">Sun</div><div class="weekday">Mon</div><div class="weekday">Tue</div>
+        <div class="weekday">Wed</div><div class="weekday">Thu</div><div class="weekday">Fri</div><div class="weekday">Sat</div>
+      </div>
+      <div class="days-grid" id="daysGrid"></div>
+    </div>
+
+    <div class="legend">
+      <h3>Legend</h3>
+      <div class="legend-items">
+        <div class="legend-item"><div class="legend-dot session"></div><span>🏸 Session</span></div>
+        <div class="legend-item"><div class="legend-dot attending"></div><span>✓ You're in</span></div>
+        <div class="legend-item"><div class="legend-cap-dot" style="background:var(--red)"></div><span>Low turnout</span></div>
+        <div class="legend-item"><div class="legend-cap-dot" style="background:var(--amber)"></div><span>Filling up</span></div>
+        <div class="legend-item"><div class="legend-cap-dot" style="background:var(--green)"></div><span>Full squad</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="viewWhosOut" class="hidden">
+    <div class="whos-out">
+      <h2>👀 This Week's Sessions</h2>
+      <div id="whosOutContent"></div>
+    </div>
+  </div>
+
+  <div id="viewAdmin" class="hidden">
+    <div class="admin-panel">
+      <h2>⚙️ Admin Panel</h2>
+      <p class="sub">Manage admins, capacity, and backups</p>
+
+      <div class="admin-section">
+        <h3>Session Capacity</h3>
+        <div class="capacity-setting">
+          <input type="number" id="capacityInput" min="1" max="20" value="6">
+          <button onclick="updateCapacity()">Update</button>
+        </div>
+      </div>
+
+      <div class="admin-section">
+        <h3>Player Roster</h3>
+        <p class="sub" style="margin-bottom:10px;">Add a new regular so they appear in everyone's player picker</p>
+        <ul class="admin-list" id="rosterListUI"></ul>
+        <div class="admin-add">
+          <input type="text" id="newRegularName" placeholder="New regular's name">
+          <button onclick="addRegular()">Add Regular</button>
+        </div>
+      </div>
+
+      <div class="admin-section">
+        <h3>Current Admins</h3>
+        <ul class="admin-list" id="adminListUI"></ul>
+        <div class="admin-add">
+          <input type="text" id="newAdminName" placeholder="Name to promote">
+          <button onclick="promoteAdmin()">Promote</button>
+        </div>
+      </div>
+
+      <div class="admin-section">
+        <h3>Backup</h3>
+        <button class="export-btn" onclick="exportBackup()">📥 Download Full Data Backup (JSON)</button>
+      </div>
+    </div>
+  </div>
+
+  <p class="footer-note">🍛 🌮 🍺 - the real MVPs of every session</p>
+</div>
+
+<div class="session-modal" id="sessionModal">
+  <div class="modal-content">
+    <div class="modal-header" id="modalDate"></div>
+    <div class="modal-sub">Tuesday &amp; Thursday court sessions</div>
+    <div id="cancelledBanner" class="hidden cancelled-banner">🚫 This session has been cancelled by an admin</div>
+    <div class="modal-capacity" id="modalCapacity"></div>
+    <div id="modalAttendees"></div>
+    <div class="full-warning hidden" id="fullWarning">⚠️ Session is at capacity - you can still join a waitlist.</div>
+    <div id="guestAddSection" class="hidden guest-add-section">
+      <input type="text" id="guestNameInput" placeholder="Guest name (one-off for this session)">
+      <button onclick="addGuestToSession()">+ Add Guest</button>
+    </div>
+    <div id="adminCancelSection" class="hidden admin-cancel-section">
+      <button id="cancelSessionBtn" class="cancel-session-btn" onclick="toggleCancelSession()">✕ Cancel This Session</button>
+    </div>
+    <div class="modal-buttons">
+      <button class="modal-btn confirm" id="toggleAttendBtn" onclick="toggleAttendance()">Join</button>
+      <button class="modal-btn close" onclick="closeModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const GROUP_PASSWORD = "gabru2026";
+const PERMANENT_ADMINS = ["Aamer", "Deep"];
+let DEFAULT_CAPACITY = 6;
+
+function pad(n){ return n < 10 ? '0'+n : ''+n; }
+function dateKey(y, m, d){ return `${y}-${pad(m+1)}-${pad(d)}`; }
+function keyFromDate(dt){ return dateKey(dt.getFullYear(), dt.getMonth(), dt.getDate()); }
+
+/* Session data shape: attendanceCache[key] = { attendees: [names], cancelled: bool } */
+function getSessionData(key){
+  const s = attendanceCache[key];
+  if (!s) return { attendees: [], cancelled: false };
+  return { attendees: s.attendees || [], cancelled: !!s.cancelled };
+}
+function getAttendees(key){ return getSessionData(key).attendees; }
+function isCancelled(key){ return getSessionData(key).cancelled; }
+
+const START_YEAR = 2026, START_MONTH = 6, START_DAY = 1;
+let currentDate = new Date(START_YEAR, START_MONTH, 1);
+let selectedSessionKey = null;
+let attendanceCache = {};
+let adminsCache = [...PERMANENT_ADMINS];
+let capacityCache = DEFAULT_CAPACITY;
+let rosterCache = [];
+
+function generateSessions(){
+  const sessions = new Set();
+  let cursor = new Date(START_YEAR, START_MONTH, START_DAY);
+  const end = new Date(START_YEAR + 1, START_MONTH + 2, 1);
+  while (cursor < end){
+    const day = cursor.getDay();
+    if (day === 2 || day === 4){ sessions.add(keyFromDate(cursor)); }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return sessions;
+}
+const SESSIONS = generateSessions();
+
+const FOOD_MOTIFS = ['🍛','🌮','🍺','🏸'];
+function motifForDay(day){ return FOOD_MOTIFS[day % FOOD_MOTIFS.length]; }
+function formatLongDate(y,m,d){
+  return new Date(y,m,d).toLocaleDateString('en-AU', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+}
+
+async function checkPassword(){
+  const input = document.getElementById('gatePassword').value;
+  if (input === GROUP_PASSWORD){
+    sessionStorage.setItem('gabruAuthed', 'true');
+    document.getElementById('gateScreen').classList.add('hidden');
+    await enterApp();
+  } else {
+    document.getElementById('gateError').textContent = 'Wrong password, try again';
+  }
+}
+
+async function enterApp(){
+  // Load shared data first so the picker (if needed) has real player names to show
+  await fetchAdmins();
+  await fetchAttendance();
+
+  const savedName = loadName();
+  if (savedName){
+    document.getElementById('mainApp').classList.remove('hidden');
+    initApp();
+  } else {
+    document.getElementById('pickerScreen').classList.remove('hidden');
+    renderPlayerPicker();
+  }
+}
+
+const API_URL = '/api/attendance';
+const ADMIN_API_URL = '/api/admins';
+
+async function fetchAttendance(){
+  setSyncStatus('syncing');
+  try {
+    const res = await fetch(API_URL);
+    if (!res.ok) throw new Error('Failed to fetch');
+    attendanceCache = await res.json();
+    setSyncStatus('synced');
+  } catch (err) {
+    console.error('Sync error:', err);
+    setSyncStatus('error');
+  }
+  return attendanceCache;
+}
+
+async function postAttendance(sessionKey, name, action, targetName){
+  setSyncStatus('syncing');
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionKey, name, action, targetName })
+    });
+    if (!res.ok) throw new Error('Failed to update');
+    attendanceCache = await res.json();
+    setSyncStatus('synced');
+  } catch (err) {
+    console.error('Update error:', err);
+    setSyncStatus('error');
+    alert('Could not save - check your connection and try again.');
+  }
+  return attendanceCache;
+}
+
+async function fetchAdmins(){
+  try {
+    const res = await fetch(ADMIN_API_URL);
+    if (!res.ok) throw new Error('Failed to fetch admins');
+    const data = await res.json();
+    adminsCache = data.admins || [...PERMANENT_ADMINS];
+    if (data.capacity) capacityCache = data.capacity;
+    rosterCache = data.roster || [];
+  } catch (err) {
+    console.error('Admin fetch error:', err);
+    adminsCache = [...PERMANENT_ADMINS];
+  }
+  return adminsCache;
+}
+
+async function postAdminAction(action, name, requestedBy, capacity){
+  try {
+    const res = await fetch(ADMIN_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, name, requestedBy, capacity })
+    });
+    const data = await res.json();
+    if (!res.ok){
+      alert(data.error || 'Action failed');
+      return null;
+    }
+    adminsCache = data.admins;
+    if (data.capacity) capacityCache = data.capacity;
+    return data;
+  } catch (err) {
+    console.error('Admin action error:', err);
+    alert('Could not complete action - check your connection.');
+    return null;
+  }
+}
+
+function setSyncStatus(state){
+  const el = document.getElementById('syncStatus');
+  if (!el) return;
+  if (state === 'syncing'){ el.textContent = '🔄 Syncing…'; el.style.opacity = '1'; }
+  else if (state === 'synced'){
+    el.textContent = '✓ Synced with group'; el.style.opacity = '0.85';
+    setTimeout(() => { if (el.textContent === '✓ Synced with group') el.style.opacity = '0.5'; }, 2000);
+  } else if (state === 'error'){ el.textContent = '⚠ Sync failed - retrying…'; el.style.opacity = '1'; }
+}
+
+function loadName(){ return localStorage.getItem('badmintonName') || ''; }
+function setName(name){
+  localStorage.setItem('badmintonName', name);
+  refreshAdminUI();
+  renderCalendar();
+}
+async function switchPlayer(){
+  document.getElementById('mainApp').classList.add('hidden');
+  await fetchAdmins();
+  await fetchAttendance();
+  document.getElementById('pickerScreen').classList.remove('hidden');
+  renderPlayerPicker();
+}
+const CORE_ROSTER = ["Aamer", "Deep", "Anjanee", "CJ", "GR", "Shadab"];
+
+function getAllKnownPlayers(){
+  const names = new Set(CORE_ROSTER);
+  rosterCache.forEach(n => names.add(n));
+  Object.values(attendanceCache).forEach(s => (s?.attendees || []).forEach(n => names.add(n)));
+  adminsCache.forEach(n => names.add(n));
+  return Array.from(names).sort();
+}
+function renderPlayerPicker(){
+  const grid = document.getElementById('playerGrid');
+  const players = getAllKnownPlayers();
+  if (players.length === 0){
+    grid.innerHTML = '<div class="player-grid-empty">No players yet - be the first to add your name below!</div>';
+    return;
+  }
+  grid.innerHTML = players.map(n =>
+    `<div class="player-chip" onclick="selectPlayer('${n.replace(/'/g,"\\'")}')">${n}</div>`
+  ).join('');
+}
+function selectPlayer(name){
+  setName(name);
+  document.getElementById('pickerScreen').classList.add('hidden');
+  document.getElementById('mainApp').classList.remove('hidden');
+  initApp();
+}
+function addNewPlayer(){
+  const name = document.getElementById('newPlayerInput').value.trim();
+  if (!name){ alert('Please enter your name'); return; }
+  document.getElementById('newPlayerInput').value = '';
+  selectPlayer(name);
+}
+function isCurrentUserAdmin(){
+  const name = loadName();
+  return !!name && adminsCache.includes(name);
+}
+
+function switchView(view){
+  document.getElementById('viewCalendar').classList.toggle('hidden', view !== 'calendar');
+  document.getElementById('viewWhosOut').classList.toggle('hidden', view !== 'whosout');
+  document.getElementById('viewAdmin').classList.toggle('hidden', view !== 'admin');
+  document.getElementById('tabCalendar').classList.toggle('active', view === 'calendar');
+  document.getElementById('tabWhosOut').classList.toggle('active', view === 'whosout');
+  document.getElementById('tabAdmin').classList.toggle('active', view === 'admin');
+
+  if (view === 'whosout') renderWhosOut();
+  if (view === 'admin') renderAdminPanel();
+}
+
+function refreshAdminUI(){
+  const badge = document.getElementById('adminBadge');
+  const tabAdmin = document.getElementById('tabAdmin');
+  if (isCurrentUserAdmin()){
+    badge.innerHTML = '<span class="admin-badge">⭐ Admin</span>';
+    tabAdmin.classList.remove('hidden');
+  } else {
+    badge.innerHTML = '';
+    tabAdmin.classList.add('hidden');
+  }
+}
+
+function previousMonth(){ currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1); renderCalendar(); }
+function nextMonth(){ currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1); renderCalendar(); }
+
+function getCapacityLevel(count){
+  if (count >= capacityCache) return 'green';
+  if (count >= 4) return 'amber';
+  return 'red';
+}
+
+function renderCalendar(){
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+
+  document.getElementById('monthTitle').textContent =
+    currentDate.toLocaleDateString('en-AU', { month:'long', year:'numeric' });
+
+  const firstDayDow = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInPrevMonth = new Date(year, month, 0).getDate();
+
+  const grid = document.getElementById('daysGrid');
+  grid.innerHTML = '';
+  const currentName = loadName();
+
+  for (let i = firstDayDow - 1; i >= 0; i--){
+    grid.appendChild(makeCell(daysInPrevMonth - i, true));
+  }
+  for (let day = 1; day <= daysInMonth; day++){
+    const key = dateKey(year, month, day);
+    const dow = new Date(year, month, day).getDay();
+    const isSession = SESSIONS.has(key);
+    const attendees = getAttendees(key);
+    const cancelled = isCancelled(key);
+    const isAttending = !!currentName && attendees.includes(currentName);
+    grid.appendChild(makeCell(day, false, isSession, attendees, isAttending, key, dow, cancelled));
+  }
+  const used = grid.children.length;
+  const remaining = 42 - used;
+  for (let day = 1; day <= remaining; day++){
+    grid.appendChild(makeCell(day, true));
+  }
+}
+
+function makeCell(day, isOtherMonth, isSession, attendees, isAttending, sessionKey, dow, cancelled){
+  const cell = document.createElement('div');
+  cell.className = 'day-cell';
+
+  if (isOtherMonth){
+    cell.classList.add('other-month');
+    const num = document.createElement('div');
+    num.className = 'day-number';
+    num.textContent = day;
+    cell.appendChild(num);
+    return cell;
+  }
+
+  const dayNum = document.createElement('div');
+  dayNum.className = 'day-number';
+  dayNum.textContent = day;
+  cell.appendChild(dayNum);
+
+  if (isSession && cancelled){
+    cell.classList.add('session', 'cancelled');
+
+    const label = document.createElement('div');
+    label.className = 'day-label';
+    label.textContent = dow === 2 ? 'Tue' : 'Thu';
+    cell.appendChild(label);
+
+    const badge = document.createElement('div');
+    badge.className = 'cancelled-badge';
+    badge.textContent = 'CANCELLED';
+    cell.appendChild(badge);
+
+    cell.onclick = () => openModal(sessionKey, attendees, cancelled);
+  } else if (isSession){
+    cell.classList.add('session');
+    if (isAttending) cell.classList.add('attending');
+    const level = getCapacityLevel(attendees.length);
+    if (level === 'green') cell.classList.add('full');
+
+    const dot = document.createElement('div');
+    dot.className = `capacity-dot ${level}`;
+    cell.appendChild(dot);
+
+    const label = document.createElement('div');
+    label.className = 'day-label';
+    label.textContent = dow === 2 ? 'Tue' : 'Thu';
+    cell.appendChild(label);
+
+    const tag = document.createElement('div');
+    tag.className = 'session-tag';
+    tag.textContent = '🏸';
+    cell.appendChild(tag);
+
+    const count = document.createElement('div');
+    count.className = 'attendee-count';
+    count.textContent = `${attendees.length}/${capacityCache}`;
+    cell.appendChild(count);
+
+    const check = document.createElement('div');
+    check.className = 'checkmark';
+    check.textContent = '✓';
+    cell.appendChild(check);
+
+    cell.onclick = () => openModal(sessionKey, attendees, cancelled);
+  } else {
+    const motif = document.createElement('div');
+    motif.className = 'bg-motif';
+    motif.textContent = motifForDay(day);
+    cell.appendChild(motif);
+  }
+  return cell;
+}
+
+function openModal(sessionKey, attendees, cancelled){
+  selectedSessionKey = sessionKey;
+  const [y,m,d] = sessionKey.split('-').map(Number);
+  const currentName = loadName();
+  const isAttending = attendees.includes(currentName);
+  const level = getCapacityLevel(attendees.length);
+  const levelColor = { red:'var(--red)', amber:'var(--amber)', green:'var(--green)' }[level];
+  const levelText = { red:'Low turnout', amber:'Filling up', green:'Full squad' }[level];
+  const canManage = isCurrentUserAdmin();
+
+  document.getElementById('modalDate').textContent = formatLongDate(y, m-1, d);
+  document.getElementById('cancelledBanner').classList.toggle('hidden', !cancelled);
+  document.getElementById('modalCapacity').innerHTML =
+    `<span class="dot" style="background:${levelColor}"></span> ${attendees.length}/${capacityCache} confirmed - ${levelText}`;
+
+  const attendeesDiv = document.getElementById('modalAttendees');
+  attendeesDiv.innerHTML = attendees.length
+    ? '<ul class="modal-attendees">' + attendees.map(n => {
+        const removeBtn = canManage && n !== currentName
+          ? `<button class="remove-btn" onclick="adminRemove('${n.replace(/'/g,"\\'")}')" title="Remove">✕</button>`
+          : '';
+        return `<li><span class="name">${n}</span>${removeBtn}</li>`;
+      }).join('') + '</ul>'
+    : '<div class="modal-empty">No confirmations yet. Be the first gabru!</div>';
+
+  document.getElementById('fullWarning').classList.toggle('hidden', attendees.length < capacityCache || isAttending || cancelled);
+  document.getElementById('guestAddSection').classList.toggle('hidden', !canManage || cancelled);
+  document.getElementById('adminCancelSection').classList.toggle('hidden', !canManage);
+
+  const cancelBtn = document.getElementById('cancelSessionBtn');
+  cancelBtn.textContent = cancelled ? '↩ Un-cancel This Session' : '✕ Cancel This Session';
+  cancelBtn.classList.toggle('is-cancelled', cancelled);
+
+  const btn = document.getElementById('toggleAttendBtn');
+  if (cancelled){
+    btn.textContent = 'Session Cancelled';
+    btn.disabled = true;
+    btn.classList.remove('confirm', 'cancel-attend');
+  } else {
+    btn.textContent = isAttending ? 'Cancel attendance' : 'Join';
+    btn.classList.toggle('confirm', !isAttending);
+    btn.classList.toggle('cancel-attend', isAttending);
+    btn.disabled = false;
+  }
+
+  document.getElementById('sessionModal').classList.add('open');
+}
+async function toggleCancelSession(){
+  if (!isCurrentUserAdmin()) return;
+  const cancelled = isCancelled(selectedSessionKey);
+  const action = cancelled ? 'uncancel-session' : 'cancel-session';
+  const currentName = loadName();
+
+  if (!cancelled && !confirm('Cancel this session? Everyone will see it marked as cancelled. You can un-cancel later if plans change.')) return;
+
+  await postAttendance(selectedSessionKey, currentName, action);
+  const sess = getSessionData(selectedSessionKey);
+  openModal(selectedSessionKey, sess.attendees, sess.cancelled);
+  renderCalendar();
+}
+
+function closeModal(){
+  document.getElementById('sessionModal').classList.remove('open');
+  selectedSessionKey = null;
+}
+async function toggleAttendance(){
+  const currentName = loadName();
+  if (!currentName){ alert('Please enter your name first'); return; }
+
+  const attendees = getAttendees(selectedSessionKey);
+  const isAttending = attendees.includes(currentName);
+  const action = isAttending ? 'leave' : 'join';
+
+  const btn = document.getElementById('toggleAttendBtn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+
+  await postAttendance(selectedSessionKey, currentName, action);
+  closeModal();
+  renderCalendar();
+}
+async function adminRemove(targetName){
+  const currentName = loadName();
+  if (!isCurrentUserAdmin()) return;
+  if (!confirm(`Remove ${targetName} from this session?`)) return;
+
+  await postAttendance(selectedSessionKey, currentName, 'admin-remove', targetName);
+  const sess = getSessionData(selectedSessionKey);
+  openModal(selectedSessionKey, sess.attendees, sess.cancelled);
+  renderCalendar();
+}
+async function addGuestToSession(){
+  if (!isCurrentUserAdmin()) return;
+  const input = document.getElementById('guestNameInput');
+  const guestName = input.value.trim();
+  if (!guestName){ alert('Enter a guest name'); return; }
+
+  const currentAttendees = getAttendees(selectedSessionKey);
+  if (currentAttendees.includes(guestName)){
+    alert(`${guestName} is already on this session's list`);
+    return;
+  }
+
+  await postAttendance(selectedSessionKey, guestName, 'join');
+  input.value = '';
+  const sess = getSessionData(selectedSessionKey);
+  openModal(selectedSessionKey, sess.attendees, sess.cancelled);
+  renderCalendar();
+}
+
+function getUpcomingSessions(count){
+  const all = Array.from(SESSIONS).sort();
+  const todayKey = keyFromDate(new Date());
+  return all.filter(k => k >= todayKey).slice(0, count);
+}
+
+function renderWhosOut(){
+  const upcoming = getUpcomingSessions(4);
+  const container = document.getElementById('whosOutContent');
+
+  if (upcoming.length === 0){
+    container.innerHTML = '<p class="modal-empty">No upcoming sessions found.</p>';
+    return;
+  }
+
+  let html = '';
+  upcoming.forEach(key => {
+    const [y,m,d] = key.split('-').map(Number);
+    const dow = new Date(y, m-1, d).getDay();
+    const dayName = dow === 2 ? 'Tuesday' : 'Thursday';
+    const dateLabel = new Date(y, m-1, d).toLocaleDateString('en-AU', { month:'short', day:'numeric' });
+    const sess = getSessionData(key);
+    const attendees = sess.attendees;
+    const cancelled = sess.cancelled;
+    const level = getCapacityLevel(attendees.length);
+    const levelText = { red:'Needs players', amber:'Filling up', green:'Full squad' }[level];
+
+    if (cancelled){
+      html += `
+        <div class="out-session">
+          <div class="out-session-title">
+            <span>${dayName}, ${dateLabel}</span>
+            <span class="cap-info red">🚫 Cancelled</span>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    html += `
+      <div class="out-session">
+        <div class="out-session-title">
+          <span>${dayName}, ${dateLabel}</span>
+          <span class="cap-info ${level}">${attendees.length}/${capacityCache} · ${levelText}</span>
+        </div>
+        <div class="out-lists">
+          <div class="out-col in">
+            <h4>In</h4>
+            ${attendees.length ? '<ul>' + attendees.map(n => `<li>${n}</li>`).join('') + '</ul>' : '<p class="none">No one yet</p>'}
+          </div>
+          <div class="out-col out">
+            <h4>Not confirmed</h4>
+            <p class="none">Nudge the group on WhatsApp 👀</p>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+}
+
+function renderAdminPanel(){
+  if (!isCurrentUserAdmin()){
+    switchView('calendar');
+    return;
+  }
+  document.getElementById('capacityInput').value = capacityCache;
+
+  const rosterList = document.getElementById('rosterListUI');
+  if (rosterCache.length === 0){
+    rosterList.innerHTML = '<li style="justify-content:center; color:var(--muted); font-style:italic;">No extra regulars added yet</li>';
+  } else {
+    rosterList.innerHTML = rosterCache.map(name => `
+      <li>
+        <span>${name}<span class="tag">Regular</span></span>
+        <button onclick="removeRegular('${name.replace(/'/g,"\\'")}')">Remove</button>
+      </li>
+    `).join('');
+  }
+
+  const list = document.getElementById('adminListUI');
+  list.innerHTML = adminsCache.map(name => {
+    const isPermanent = PERMANENT_ADMINS.includes(name);
+    return `
+      <li>
+        <span>${name}${isPermanent ? '<span class="tag">Permanent</span>' : '<span class="tag">Admin</span>'}</span>
+        ${!isPermanent ? `<button onclick="demoteAdmin('${name.replace(/'/g,"\\'")}')">Remove</button>` : ''}
+      </li>
+    `;
+  }).join('');
+}
+
+async function addRegular(){
+  const name = document.getElementById('newRegularName').value.trim();
+  if (!name){ alert('Enter a name to add'); return; }
+  const requestedBy = loadName();
+  const result = await postAdminAction('add-regular', name, requestedBy);
+  if (result){
+    document.getElementById('newRegularName').value = '';
+    if (result.roster) rosterCache = result.roster;
+    renderAdminPanel();
+  }
+}
+async function removeRegular(name){
+  if (!confirm(`Remove ${name} from the regular roster? (They can still play as a guest.)`)) return;
+  const requestedBy = loadName();
+  const result = await postAdminAction('remove-regular', name, requestedBy);
+  if (result){
+    if (result.roster) rosterCache = result.roster;
+    renderAdminPanel();
+  }
+}
+
+async function promoteAdmin(){
+  const name = document.getElementById('newAdminName').value.trim();
+  if (!name){ alert('Enter a name to promote'); return; }
+  const requestedBy = loadName();
+  const result = await postAdminAction('promote', name, requestedBy);
+  if (result){
+    document.getElementById('newAdminName').value = '';
+    renderAdminPanel();
+    refreshAdminUI();
+  }
+}
+async function demoteAdmin(name){
+  if (!confirm(`Remove admin access for ${name}?`)) return;
+  const requestedBy = loadName();
+  const result = await postAdminAction('demote', name, requestedBy);
+  if (result){
+    renderAdminPanel();
+    refreshAdminUI();
+  }
+}
+async function updateCapacity(){
+  const val = parseInt(document.getElementById('capacityInput').value, 10);
+  if (!val || val < 1){ alert('Enter a valid capacity'); return; }
+  const requestedBy = loadName();
+  const result = await postAdminAction('set-capacity', null, requestedBy, val);
+  if (result){
+    renderCalendar();
+    alert(`Capacity updated to ${val} for everyone.`);
+  }
+}
+function exportBackup(){
+  const backup = {
+    exportedAt: new Date().toISOString(),
+    capacity: capacityCache,
+    admins: adminsCache,
+    attendance: attendanceCache
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `gabru-badminton-backup-${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+  window.URL.revokeObjectURL(url);
+}
+
+function initApp(){
+  refreshAdminUI();
+  renderCalendar();
+
+  document.getElementById('sessionModal').addEventListener('click', (e) => {
+    if (e.target.id === 'sessionModal') closeModal();
+  });
+
+  setInterval(async () => {
+    if (document.getElementById('sessionModal').classList.contains('open')) return;
+    await fetchAttendance();
+    await fetchAdmins();
+    refreshAdminUI();
+    renderCalendar();
+  }, 15000);
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  if (sessionStorage.getItem('gabruAuthed') === 'true'){
+    document.getElementById('gateScreen').classList.add('hidden');
+    await enterApp();
+  }
+  document.getElementById('gatePassword').addEventListener('keyup', (e) => {
+    if (e.key === 'Enter') checkPassword();
+  });
+  document.getElementById('newPlayerInput').addEventListener('keyup', (e) => {
+    if (e.key === 'Enter') addNewPlayer();
+  });
+});
+</script>
+</body>
+</html>

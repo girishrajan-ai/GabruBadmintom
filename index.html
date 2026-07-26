@@ -1376,13 +1376,28 @@ async function enablePushNotifications(){
     });
 
     const currentName = loadName();
-    await fetch('/api/push', {
+    const subscribeRes = await fetch('/api/push', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'subscribe', subscription, name: currentName || null }),
     });
 
+    if (!subscribeRes.ok){
+      const errText = await subscribeRes.text().catch(() => '');
+      console.error('Subscribe save failed:', subscribeRes.status, errText);
+      alert(`Notifications were allowed, but saving your subscription failed (server error ${subscribeRes.status}). Please try again or let the admin know.`);
+      return;
+    }
+
+    const subscribeData = await subscribeRes.json().catch(() => null);
+    if (!subscribeData || !subscribeData.ok){
+      console.error('Subscribe save returned unexpected response:', subscribeData);
+      alert('Notifications were allowed, but something went wrong saving your subscription. Please try again.');
+      return;
+    }
+
     checkNotificationStatus();
+    alert('Notifications enabled! You should now receive updates for this app.');
   } catch (err) {
     console.error('Push subscription error:', err);
     alert('Could not enable notifications - please try again.');

@@ -1141,7 +1141,7 @@ function getUpcomingSessions(count){
 }
 
 function shareToWhatsApp(){
-  const upcoming = getUpcomingSessions(4);
+  const upcoming = getUpcomingSessions(2);
 
   if (upcoming.length === 0){
     const url = `https://wa.me/?text=${encodeURIComponent("🏸 Gabru Badminton - check who's in!\n\ngogabru.com")}`;
@@ -1149,20 +1149,21 @@ function shareToWhatsApp(){
     return;
   }
 
-  const lines = upcoming.map(key => {
+  const blocks = upcoming.map(key => {
     const [y,m,d] = key.split('-').map(Number);
     const dow = new Date(y, m-1, d).getDay();
-    const dayName = dow === 2 ? 'Tue' : 'Thu';
+    const dayName = dow === 2 ? 'Tuesday' : 'Thursday';
     const dateLabel = new Date(y, m-1, d).toLocaleDateString('en-AU', { month:'short', day:'numeric' });
     const sess = getSessionData(key);
 
     if (sess.cancelled){
       return `🚫 ${dayName} ${dateLabel}: Cancelled`;
     }
-    return `🏸 ${dayName} ${dateLabel}: ${sess.attendees.length}/${capacityCache} confirmed`;
+    const names = sess.attendees.length ? sess.attendees.join(', ') : 'No one yet';
+    return `🏸 ${dayName} ${dateLabel}: ${sess.attendees.length}/${capacityCache} confirmed\n${names}`;
   });
 
-  const message = `🏸 Gabru Badminton - this week's sessions:\n\n${lines.join('\n')}\n\nJoin in: gogabru.com`;
+  const message = `🏸 Gabru Badminton - upcoming sessions:\n\n${blocks.join('\n\n')}\n\nJoin in: gogabru.com`;
   const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
   window.open(url, '_blank');
 }

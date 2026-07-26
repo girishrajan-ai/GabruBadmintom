@@ -88,6 +88,16 @@
   .notifs-status{
     margin-top:6px; font-size:11.5px; color:#c9ecd7; font-weight:600;
   }
+  .whatsapp-share-btn{
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    width:100%; max-width:520px; margin:0 auto 16px; padding:13px;
+    background:#25D366; color:#fff; border:none; border-radius:12px;
+    font-weight:700; font-size:14px; cursor:pointer; min-height:48px;
+    box-shadow:0 8px 20px rgba(37,211,102,0.35); transition:background .2s, transform .15s;
+  }
+  .whatsapp-share-btn:hover{ background:#1fb855; }
+  .whatsapp-share-btn:active{ transform:scale(0.98); }
+  .whatsapp-share-btn .wa-icon{ font-size:17px; }
   .announcement-banner{
     background: linear-gradient(135deg, var(--gold) 0%, #c98f2a 100%);
     color:#3a2a0a; border-radius:12px; padding:13px 16px; margin-bottom:16px;
@@ -424,6 +434,10 @@
     <p id="notifsStatus" class="hidden notifs-status">🔔 Notifications on</p>
   </div>
 
+  <button class="whatsapp-share-btn" onclick="shareToWhatsApp()">
+    <span class="wa-icon">💬</span> Share update on WhatsApp
+  </button>
+
   <div id="announcementBanner" class="hidden announcement-banner">
     <span id="announcementText"></span>
     <button id="dismissBannerBtn" class="hidden" onclick="clearBanner()" title="Remove announcement">✕</button>
@@ -431,7 +445,7 @@
 
   <div class="view-tabs">
     <button class="view-tab active" id="tabCalendar" onclick="switchView('calendar')">📅 Calendar</button>
-    <button class="view-tab" id="tabWhosOut" onclick="switchView('whosout')">👀 Who's Out</button>
+    <button class="view-tab" id="tabWhosOut" onclick="switchView('whosout')">👀 Who's In</button>
     <button class="view-tab hidden" id="tabAdmin" onclick="switchView('admin')">⚙️ Admin</button>
   </div>
 
@@ -1112,6 +1126,30 @@ function getUpcomingSessions(count){
   return all.filter(k => k >= todayKey).slice(0, count);
 }
 
+function shareToWhatsApp(){
+  const upcoming = getUpcomingSessions(1);
+  let message = "🏸 Gabru Badminton - check who's in for the next session!\n\ngogabru.com";
+
+  if (upcoming.length){
+    const key = upcoming[0];
+    const [y,m,d] = key.split('-').map(Number);
+    const dow = new Date(y, m-1, d).getDay();
+    const dayName = dow === 2 ? 'Tuesday' : 'Thursday';
+    const dateLabel = new Date(y, m-1, d).toLocaleDateString('en-AU', { month:'short', day:'numeric' });
+    const sess = getSessionData(key);
+
+    if (sess.cancelled){
+      message = `🚫 Heads up - ${dayName} ${dateLabel}'s session is cancelled.\n\nCheck gogabru.com for updates.`;
+    } else {
+      const count = sess.attendees.length;
+      message = `🏸 ${dayName} ${dateLabel} - ${count}/${capacityCache} confirmed so far!\n\nJoin in: gogabru.com`;
+    }
+  }
+
+  const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+  window.open(url, '_blank');
+}
+
 function renderWhosOut(){
   const upcoming = getUpcomingSessions(4);
   const container = document.getElementById('whosOutContent');
@@ -1409,9 +1447,14 @@ function initApp(){
   renderCalendar();
 
   registerServiceWorker().then(() => checkNotificationStatus());
+  clearAppBadgeEverywhere();
 
   document.getElementById('sessionModal').addEventListener('click', (e) => {
     if (e.target.id === 'sessionModal') closeModal();
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') clearAppBadgeEverywhere();
   });
 
   setInterval(async () => {
@@ -1421,6 +1464,18 @@ function initApp(){
     refreshAdminUI();
     renderCalendar();
   }, 15000);
+}
+
+function clearAppBadgeEverywhere(){
+  // Clear directly if the Badging API is available on this page context
+  if ('clearAppBadge' in navigator){
+    navigator.clearAppBadge().catch(() => {});
+  }
+  // Also tell the service worker to reset its stored count, so a later
+  // push starts counting from 0 again instead of continuing an old total.
+  if (swRegistration && swRegistration.active){
+    swRegistration.active.postMessage({ type: 'CLEAR_BADGE' });
+  }
 }
 
 document.addEventListener('DOMContentLoaded', async () => {

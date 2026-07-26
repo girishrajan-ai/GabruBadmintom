@@ -98,6 +98,16 @@
   .whatsapp-share-btn:hover{ background:#1fb855; }
   .whatsapp-share-btn:active{ transform:scale(0.98); }
   .whatsapp-share-btn .wa-icon{ font-size:17px; }
+  .wa-icon-btn{
+    padding:11px 14px; background:#25D366; color:#fff; border:none; border-radius:8px;
+    font-size:16px; cursor:pointer; min-height:44px; min-width:44px; flex-shrink:0;
+  }
+  .wa-icon-btn:hover{ background:#1fb855; }
+  .share-wa-icon-btn{
+    width:100%; margin-top:8px; padding:11px; background:#25D366; color:#fff; border:none;
+    border-radius:9px; font-weight:700; font-size:13px; cursor:pointer; min-height:44px;
+  }
+  .share-wa-icon-btn:hover{ background:#1fb855; }
   .announcement-banner{
     background: linear-gradient(135deg, var(--gold) 0%, #c98f2a 100%);
     color:#3a2a0a; border-radius:12px; padding:13px 16px; margin-bottom:16px;
@@ -503,6 +513,7 @@
         <div class="admin-add">
           <input type="text" id="bannerTextInput" placeholder="e.g. Payment due for July courts 💰" maxlength="200">
           <button onclick="setBanner()">Post</button>
+          <button class="wa-icon-btn" onclick="shareBannerToWhatsApp()" title="Share on WhatsApp">💬</button>
         </div>
       </div>
 
@@ -557,6 +568,7 @@
     </div>
     <div id="adminCancelSection" class="hidden admin-cancel-section">
       <button id="cancelSessionBtn" class="cancel-session-btn" onclick="toggleCancelSession()">✕ Cancel This Session</button>
+      <button id="shareCancelWaBtn" class="hidden share-wa-icon-btn" onclick="shareCancellationToWhatsApp()" title="Share cancellation on WhatsApp">💬 Share cancellation on WhatsApp</button>
     </div>
     <div class="modal-buttons">
       <button class="modal-btn confirm" id="toggleAttendBtn" onclick="toggleAttendance()">Join</button>
@@ -1039,6 +1051,8 @@ function openModal(sessionKey, attendees, cancelled){
   cancelBtn.textContent = cancelled ? '↩ Un-cancel This Session' : '✕ Cancel This Session';
   cancelBtn.classList.toggle('is-cancelled', cancelled);
 
+  document.getElementById('shareCancelWaBtn').classList.toggle('hidden', !cancelled || !canManage);
+
   const btn = document.getElementById('toggleAttendBtn');
   if (cancelled){
     btn.textContent = 'Session Cancelled';
@@ -1127,25 +1141,49 @@ function getUpcomingSessions(count){
 }
 
 function shareToWhatsApp(){
-  const upcoming = getUpcomingSessions(1);
-  let message = "🏸 Gabru Badminton - check who's in for the next session!\n\ngogabru.com";
+  const upcoming = getUpcomingSessions(4);
 
-  if (upcoming.length){
-    const key = upcoming[0];
+  if (upcoming.length === 0){
+    const url = `https://wa.me/?text=${encodeURIComponent("🏸 Gabru Badminton - check who's in!\n\ngogabru.com")}`;
+    window.open(url, '_blank');
+    return;
+  }
+
+  const lines = upcoming.map(key => {
     const [y,m,d] = key.split('-').map(Number);
     const dow = new Date(y, m-1, d).getDay();
-    const dayName = dow === 2 ? 'Tuesday' : 'Thursday';
+    const dayName = dow === 2 ? 'Tue' : 'Thu';
     const dateLabel = new Date(y, m-1, d).toLocaleDateString('en-AU', { month:'short', day:'numeric' });
     const sess = getSessionData(key);
 
     if (sess.cancelled){
-      message = `🚫 Heads up - ${dayName} ${dateLabel}'s session is cancelled.\n\nCheck gogabru.com for updates.`;
-    } else {
-      const count = sess.attendees.length;
-      message = `🏸 ${dayName} ${dateLabel} - ${count}/${capacityCache} confirmed so far!\n\nJoin in: gogabru.com`;
+      return `🚫 ${dayName} ${dateLabel}: Cancelled`;
     }
-  }
+    return `🏸 ${dayName} ${dateLabel}: ${sess.attendees.length}/${capacityCache} confirmed`;
+  });
 
+  const message = `🏸 Gabru Badminton - this week's sessions:\n\n${lines.join('\n')}\n\nJoin in: gogabru.com`;
+  const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+  window.open(url, '_blank');
+}
+
+function shareCancellationToWhatsApp(){
+  if (!selectedSessionKey) return;
+  const [y,m,d] = selectedSessionKey.split('-').map(Number);
+  const dow = new Date(y, m-1, d).getDay();
+  const dayName = dow === 2 ? 'Tuesday' : 'Thursday';
+  const dateLabel = new Date(y, m-1, d).toLocaleDateString('en-AU', { month:'short', day:'numeric' });
+
+  const message = `🚫 Heads up - ${dayName} ${dateLabel}'s session has been cancelled.\n\nCheck gogabru.com for updates.`;
+  const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+  window.open(url, '_blank');
+}
+
+function shareBannerToWhatsApp(){
+  const text = document.getElementById('bannerTextInput').value.trim() || (bannerCache && bannerCache.text) || '';
+  if (!text){ alert('Enter or post a banner message first'); return; }
+
+  const message = `📌 Gabru Badminton announcement:\n\n${text}\n\ngogabru.com`;
   const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
   window.open(url, '_blank');
 }

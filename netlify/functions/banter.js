@@ -1,9 +1,18 @@
 import { getStore } from "@netlify/blobs";
+import { sendPushToAll } from "./push.js";
 
 const STORE_NAME = "gabru-banter";
 const KEY = "banter";
 const MAX_MESSAGE_LENGTH = 200;
 const MAX_MESSAGES_PER_SESSION = 100;
+
+function formatSessionLabel(sessionKey) {
+  const [y, m, d] = sessionKey.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  const dayName = date.getDay() === 2 ? "Tuesday" : "Thursday";
+  const dateLabel = date.toLocaleDateString("en-AU", { month: "short", day: "numeric" });
+  return `${dayName}, ${dateLabel}`;
+}
 
 export default async (req) => {
   const store = getStore({ name: STORE_NAME, consistency: "strong" });
@@ -76,6 +85,19 @@ export default async (req) => {
     }
 
     await store.setJSON(KEY, data);
+
+    if (action === "post") {
+      try {
+        const preview = message.trim().slice(0, MAX_MESSAGE_LENGTH);
+        sendPushToAll(
+          `💬 New banter — ${formatSessionLabel(sessionKey)}`,
+          `${name}: ${preview}`,
+          "/"
+        ).catch(() => {});
+      } catch (e) {
+        // never let notification errors affect the response
+      }
+    }
 
     return new Response(JSON.stringify(data), {
       status: 200,

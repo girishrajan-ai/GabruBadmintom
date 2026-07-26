@@ -1,4 +1,5 @@
 import { getStore } from "@netlify/blobs";
+import { sendPushToAll } from "./push.js";
 
 const STORE_NAME = "gabru-admins";
 const KEY = "admins";
@@ -11,11 +12,12 @@ export default async (req) => {
   const store = getStore({ name: STORE_NAME, consistency: "strong" });
 
   if (req.method === "GET") {
-    const stored = (await store.get(KEY, { type: "json" })) || { admins: [], capacity: DEFAULT_CAPACITY, roster: [] };
+    const stored = (await store.get(KEY, { type: "json" })) || { admins: [], capacity: DEFAULT_CAPACITY, roster: [], banner: null };
     const allAdmins = Array.from(new Set([...PERMANENT_ADMINS, ...(stored.admins || [])]));
     const capacity = stored.capacity || DEFAULT_CAPACITY;
     const roster = stored.roster || [];
-    return new Response(JSON.stringify({ admins: allAdmins, capacity, roster }), {
+    const banner = stored.banner || null;
+    return new Response(JSON.stringify({ admins: allAdmins, capacity, roster, banner }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
@@ -32,7 +34,7 @@ export default async (req) => {
       });
     }
 
-    const { action, name, requestedBy, capacity } = body;
+    const { action, name, requestedBy, capacity, bannerText } = body;
 
     if (!action || !requestedBy) {
       return new Response(
@@ -41,10 +43,11 @@ export default async (req) => {
       );
     }
 
-    const stored = (await store.get(KEY, { type: "json" })) || { admins: [], capacity: DEFAULT_CAPACITY, roster: [] };
+    const stored = (await store.get(KEY, { type: "json" })) || { admins: [], capacity: DEFAULT_CAPACITY, roster: [], banner: null };
     if (!stored.admins) stored.admins = [];
     if (!stored.capacity) stored.capacity = DEFAULT_CAPACITY;
     if (!stored.roster) stored.roster = [];
+    if (stored.banner === undefined) stored.banner = null;
 
     const currentAdmins = Array.from(new Set([...PERMANENT_ADMINS, ...stored.admins]));
 
@@ -102,6 +105,19 @@ export default async (req) => {
         });
       }
       stored.roster = stored.roster.filter((n) => n !== name);
+    } else if (action === "set-banner") {
+      if (!bannerText || !bannerText.trim()) {
+        return new Response(JSON.stringify({ error: "Missing bannerText" }), {
+          status: 400, headers: { "Content-Type": "application/json" },
+        });
+      }
+      stored.banner = {
+        text: bannerText.trim().slice(0, 200),
+        postedBy: requestedBy,
+        postedAt: new Date().toISOString(),
+      };
+    } else if (action === "clear-banner") {
+      stored.banner = null;
     } else {
       return new Response(JSON.stringify({ error: "Invalid action" }), {
         status: 400,
@@ -112,7 +128,15 @@ export default async (req) => {
     await store.setJSON(KEY, stored);
     const allAdmins = Array.from(new Set([...PERMANENT_ADMINS, ...stored.admins]));
 
-    return new Response(JSON.stringify({ admins: allAdmins, capacity: stored.capacity, roster: stored.roster }), {
+    if (action === "set-banner") {
+      try {
+        sendPushToAll("📌 New announcement", stored.banner.text, "/").catch(() => {});
+      } catch (e) {
+        // never let notification errors affect the response
+      }
+    }
+
+    return new Response(JSON.stringify({ admins: allAdmins, capacity: stored.capacity, roster: stored.roster, banner: stored.banner }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });

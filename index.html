@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gabru Badminton</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1f6f4a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Gabru Badminton">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
 
@@ -78,6 +84,9 @@
   .switch-player-link{
     display:block; text-align:center; margin-top:6px; font-size:11.5px; color:#fff6e5; opacity:0.7;
     text-decoration:underline; cursor:pointer; background:none; border:none;
+  }
+  .notifs-status{
+    margin-top:6px; font-size:11.5px; color:#c9ecd7; font-weight:600;
   }
   .announcement-banner{
     background: linear-gradient(135deg, var(--gold) 0%, #c98f2a 100%);
@@ -411,6 +420,8 @@
     <p id="syncStatus" class="sync-status">🔄 Syncing…</p>
     <div id="adminBadge"></div>
     <button class="switch-player-link" onclick="switchPlayer()">Not you? Switch player</button>
+    <button id="enableNotifsBtn" class="switch-player-link hidden" onclick="enablePushNotifications()">🔔 Enable notifications</button>
+    <p id="notifsStatus" class="hidden notifs-status">🔔 Notifications on</p>
   </div>
 
   <div id="announcementBanner" class="hidden announcement-banner">
@@ -1283,9 +1294,106 @@ function exportBackup(){
   window.URL.revokeObjectURL(url);
 }
 
+/* ============ PUSH NOTIFICATIONS ============ */
+let swRegistration = null;
+
+function urlBase64ToUint8Array(base64String){
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+async function registerServiceWorker(){
+  if (!('serviceWorker' in navigator)) return null;
+  try {
+    swRegistration = await navigator.serviceWorker.register('/sw.js');
+    return swRegistration;
+  } catch (err) {
+    console.error('Service worker registration failed:', err);
+    return null;
+  }
+}
+
+async function checkNotificationStatus(){
+  const enableBtn = document.getElementById('enableNotifsBtn');
+  const statusText = document.getElementById('notifsStatus');
+
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)){
+    // Not supported on this browser (e.g. older iOS Safari not added to home screen)
+    enableBtn.classList.add('hidden');
+    statusText.classList.add('hidden');
+    return;
+  }
+
+  if (Notification.permission === 'granted' && swRegistration){
+    const sub = await swRegistration.pushManager.getSubscription();
+    if (sub){
+      enableBtn.classList.add('hidden');
+      statusText.classList.remove('hidden');
+      return;
+    }
+  }
+
+  if (Notification.permission === 'denied'){
+    enableBtn.classList.add('hidden');
+    statusText.classList.add('hidden');
+    return;
+  }
+
+  enableBtn.classList.remove('hidden');
+  statusText.classList.add('hidden');
+}
+
+async function enablePushNotifications(){
+  if (!swRegistration){
+    await registerServiceWorker();
+  }
+  if (!swRegistration){
+    alert('Notifications are not supported on this browser.');
+    return;
+  }
+
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted'){
+      alert('Notifications were not enabled. You can turn them on later from your browser settings.');
+      return;
+    }
+
+    const keyRes = await fetch('/api/push');
+    const keyData = await keyRes.json();
+    if (!keyData.publicKey){
+      alert('Push notifications are not configured yet - check back later.');
+      return;
+    }
+
+    const subscription = await swRegistration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(keyData.publicKey),
+    });
+
+    const currentName = loadName();
+    await fetch('/api/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'subscribe', subscription, name: currentName || null }),
+    });
+
+    checkNotificationStatus();
+  } catch (err) {
+    console.error('Push subscription error:', err);
+    alert('Could not enable notifications - please try again.');
+  }
+}
+
 function initApp(){
   refreshAdminUI();
   renderCalendar();
+
+  registerServiceWorker().then(() => checkNotificationStatus());
 
   document.getElementById('sessionModal').addEventListener('click', (e) => {
     if (e.target.id === 'sessionModal') closeModal();

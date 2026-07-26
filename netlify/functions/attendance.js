@@ -1,7 +1,11 @@
 import { getStore } from "@netlify/blobs";
+import { sendPushToAll } from "./push.js";
 
 const STORE_NAME = "gabru-attendance";
 const KEY = "attendance";
+const ADMIN_STORE_NAME = "gabru-admins";
+const ADMIN_KEY = "admins";
+const AMBER_THRESHOLD = 4;
 
 // Backward-compatible normalizer: old data shape was { sessionKey: [names] }.
 // New shape is { sessionKey: { attendees: [names], cancelled: bool } }.
@@ -22,6 +26,14 @@ function normalizeAll(data) {
     out[key] = normalizeSession(data[key]);
   }
   return out;
+}
+
+function formatSessionLabel(sessionKey) {
+  const [y, m, d] = sessionKey.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  const dayName = date.getDay() === 2 ? "Tuesday" : "Thursday";
+  const dateLabel = date.toLocaleDateString("en-AU", { month: "short", day: "numeric" });
+  return `${dayName}, ${dateLabel}`;
 }
 
 export default async (req) => {
@@ -63,6 +75,9 @@ export default async (req) => {
       data[sessionKey] = { attendees: [], cancelled: false };
     }
 
+    const countBefore = data[sessionKey].attendees.length;
+    let shouldNotifyThreshold = false;
+
     if (action === "join") {
       if (!name) {
         return new Response(JSON.stringify({ error: "Missing name" }), {
@@ -73,6 +88,11 @@ export default async (req) => {
       if (data[sessionKey].attendees.indexOf(name) === -1) {
         data[sessionKey].attendees.push(name);
         data[sessionKey].attendees.sort();
+      }
+      const countAfter = data[sessionKey].attendees.length;
+      // Notify once, exactly when crossing into "filling up" territory
+      if (countBefore < AMBER_THRESHOLD && countAfter >= AMBER_THRESHOLD) {
+        shouldNotifyThreshold = true;
       }
     } else if (action === "leave") {
       if (!name) {
@@ -107,6 +127,27 @@ export default async (req) => {
     }
 
     await store.setJSON(KEY, data);
+
+    // Fire notifications after the write succeeds. Failures here must never
+    // block the attendance update itself - notification is best-effort.
+    try {
+      if (shouldNotifyThreshold) {
+        sendPushToAll(
+          "Session filling up! 🏸",
+          `${formatSessionLabel(sessionKey)} now has ${data[sessionKey].attendees.length} confirmed.`,
+          "/"
+        ).catch(() => {});
+      }
+      if (action === "cancel-session") {
+        sendPushToAll(
+          "Session cancelled 🚫",
+          `${formatSessionLabel(sessionKey)} has been cancelled.`,
+          "/"
+        ).catch(() => {});
+      }
+    } catch (e) {
+      // never let notification errors affect the response
+    }
 
     return new Response(JSON.stringify(data), {
       status: 200,

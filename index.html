@@ -637,9 +637,10 @@ async function checkPassword(){
 }
 
 async function enterApp(){
-  // Load shared data first so the picker (if needed) has real player names to show
-  await fetchAdmins();
-  await fetchAttendance();
+  // Load shared data first so the picker (if needed) has real player names to
+  // show. The two requests are independent - running them together halves the
+  // wait before anything is painted.
+  await Promise.all([fetchAdmins(), fetchAttendance()]);
 
   const savedName = loadName();
   if (savedName){
@@ -655,18 +656,31 @@ const API_URL = '/api/attendance';
 const ADMIN_API_URL = '/api/admins';
 const BANTER_API_URL = '/api/banter';
 
+// The polled endpoints send an ETag and the browser revalidates for us, so an
+// unchanged poll costs a 304 with no body. These signatures let us skip the
+// re-render too - most polls change nothing, and rebuilding the calendar every
+// 15s for no reason is the bulk of the app's idle work.
+let attendanceSig = null;
+let adminsSig = null;
+
 async function fetchAttendance(){
   setSyncStatus('syncing');
+  let changed = false;
   try {
     const res = await fetch(API_URL);
     if (!res.ok) throw new Error('Failed to fetch');
-    attendanceCache = await res.json();
+    const text = await res.text();
+    changed = text !== attendanceSig;
+    if (changed){
+      attendanceSig = text;
+      attendanceCache = JSON.parse(text);
+    }
     setSyncStatus('synced');
   } catch (err) {
     console.error('Sync error:', err);
     setSyncStatus('error');
   }
-  return attendanceCache;
+  return changed;
 }
 
 async function postAttendance(sessionKey, name, action, targetName){
@@ -679,6 +693,7 @@ async function postAttendance(sessionKey, name, action, targetName){
     });
     if (!res.ok) throw new Error('Failed to update');
     attendanceCache = await res.json();
+    attendanceSig = null; // we wrote; force the next poll to be treated as new
     setSyncStatus('synced');
   } catch (err) {
     console.error('Update error:', err);
@@ -689,20 +704,26 @@ async function postAttendance(sessionKey, name, action, targetName){
 }
 
 async function fetchAdmins(){
+  let changed = false;
   try {
     const res = await fetch(ADMIN_API_URL);
     if (!res.ok) throw new Error('Failed to fetch admins');
-    const data = await res.json();
-    adminsCache = data.admins || [...PERMANENT_ADMINS];
-    if (data.capacity) capacityCache = data.capacity;
-    rosterCache = data.roster || [];
-    bannerCache = data.banner || null;
-    renderBanner();
+    const text = await res.text();
+    changed = text !== adminsSig;
+    if (changed){
+      adminsSig = text;
+      const data = JSON.parse(text);
+      adminsCache = data.admins || [...PERMANENT_ADMINS];
+      if (data.capacity) capacityCache = data.capacity;
+      rosterCache = data.roster || [];
+      bannerCache = data.banner || null;
+      renderBanner();
+    }
   } catch (err) {
     console.error('Admin fetch error:', err);
     adminsCache = [...PERMANENT_ADMINS];
   }
-  return adminsCache;
+  return changed;
 }
 
 function renderBanner(){
@@ -734,6 +755,7 @@ async function postAdminAction(action, name, requestedBy, capacity, bannerText){
     adminsCache = data.admins;
     if (data.capacity) capacityCache = data.capacity;
     bannerCache = data.banner || null;
+    adminsSig = null; // we wrote; force the next poll to be treated as new
     renderBanner();
     return data;
   } catch (err) {
@@ -803,7 +825,7 @@ function renderBanterMessages(){
     return `
       <div class="banter-msg">
         <div class="content">
-          <span class="who">${m.name}:</span>${escapeHtml(m.message)}
+          <span class="who">${escapeHtml(m.name)}:</span>${escapeHtml(m.message)}
           <span class="when">${time}</span>
         </div>
         <button class="del-btn" onclick="deleteBanterMessage('${m.id}')" title="Delete">✕</button>
@@ -816,6 +838,24 @@ function escapeHtml(str){
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+// For values that land inside a double-quoted HTML attribute. Player names are
+// free text from the "add player" box, so interpolating them raw into markup -
+// or into an inline onclick string literal - let one player run script in
+// everyone else's app. Names go into data attributes now, read back via
+// dataset by delegated handlers, so they are never parsed as HTML or JS.
+function escapeAttr(str){
+  return escapeHtml(str).replace(/"/g, '&quot;');
+}
+// Wires up one delegated click handler for elements carrying `attr`, calling
+// `fn` with the attribute's value.
+function delegateNameAction(containerId, attr, fn){
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.addEventListener('click', (e) => {
+    const el = e.target.closest(`[${attr}]`);
+    if (el && container.contains(el)) fn(el.getAttribute(attr));
+  });
 }
 
 
@@ -838,8 +878,7 @@ function setName(name){
 }
 async function switchPlayer(){
   document.getElementById('mainApp').classList.add('hidden');
-  await fetchAdmins();
-  await fetchAttendance();
+  await Promise.all([fetchAdmins(), fetchAttendance()]);
   document.getElementById('pickerScreen').classList.remove('hidden');
   renderPlayerPicker();
 }
@@ -860,7 +899,7 @@ function renderPlayerPicker(){
     return;
   }
   grid.innerHTML = players.map(n =>
-    `<div class="player-chip" onclick="selectPlayer('${n.replace(/'/g,"\\'")}')">${n}</div>`
+    `<div class="player-chip" data-player="${escapeAttr(n)}">${escapeHtml(n)}</div>`
   ).join('');
 }
 function selectPlayer(name){
@@ -926,11 +965,13 @@ function renderCalendar(){
   const daysInPrevMonth = new Date(year, month, 0).getDate();
 
   const grid = document.getElementById('daysGrid');
-  grid.innerHTML = '';
+  // Build off-document and swap in once: 42 individual appendChild calls into
+  // a live grid means 42 chances to lay out and paint.
+  const frag = document.createDocumentFragment();
   const currentName = loadName();
 
   for (let i = firstDayDow - 1; i >= 0; i--){
-    grid.appendChild(makeCell(daysInPrevMonth - i, true));
+    frag.appendChild(makeCell(daysInPrevMonth - i, true));
   }
   for (let day = 1; day <= daysInMonth; day++){
     const key = dateKey(year, month, day);
@@ -939,13 +980,13 @@ function renderCalendar(){
     const attendees = getAttendees(key);
     const cancelled = isCancelled(key);
     const isAttending = !!currentName && attendees.includes(currentName);
-    grid.appendChild(makeCell(day, false, isSession, attendees, isAttending, key, dow, cancelled));
+    frag.appendChild(makeCell(day, false, isSession, attendees, isAttending, key, dow, cancelled));
   }
-  const used = grid.children.length;
-  const remaining = 42 - used;
+  const remaining = 42 - frag.childNodes.length;
   for (let day = 1; day <= remaining; day++){
-    grid.appendChild(makeCell(day, true));
+    frag.appendChild(makeCell(day, true));
   }
+  grid.replaceChildren(frag);
 }
 
 function makeCell(day, isOtherMonth, isSession, attendees, isAttending, sessionKey, dow, cancelled){
@@ -1038,10 +1079,13 @@ function openModal(sessionKey, attendees, cancelled){
   const attendeesDiv = document.getElementById('modalAttendees');
   attendeesDiv.innerHTML = attendees.length
     ? '<ul class="modal-attendees">' + attendees.map(n => {
+        // Names are free text from the "add player" input, so they have to be
+        // escaped on the way into innerHTML - both as markup and inside the
+        // inline handler's string literal.
         const removeBtn = canManage && n !== currentName
-          ? `<button class="remove-btn" onclick="adminRemove('${n.replace(/'/g,"\\'")}')" title="Remove">✕</button>`
+          ? `<button class="remove-btn" data-admin-remove="${escapeAttr(n)}" title="Remove">✕</button>`
           : '';
-        return `<li><span class="name">${n}</span>${removeBtn}</li>`;
+        return `<li><span class="name">${escapeHtml(n)}</span>${removeBtn}</li>`;
       }).join('') + '</ul>'
     : '<div class="modal-empty">No confirmations yet. Be the first gabru!</div>';
 
@@ -1233,7 +1277,7 @@ function renderWhosOut(){
         <div class="out-lists">
           <div class="out-col in">
             <h4>In</h4>
-            ${attendees.length ? '<ul>' + attendees.map(n => `<li>${n}</li>`).join('') + '</ul>' : '<p class="none">No one yet</p>'}
+            ${attendees.length ? '<ul>' + attendees.map(n => `<li>${escapeHtml(n)}</li>`).join('') + '</ul>' : '<p class="none">No one yet</p>'}
           </div>
           <div class="out-col out">
             <h4>Not confirmed</h4>
@@ -1269,8 +1313,8 @@ function renderAdminPanel(){
   } else {
     rosterList.innerHTML = rosterCache.map(name => `
       <li>
-        <span>${name}<span class="tag">Regular</span></span>
-        <button onclick="removeRegular('${name.replace(/'/g,"\\'")}')">Remove</button>
+        <span>${escapeHtml(name)}<span class="tag">Regular</span></span>
+        <button data-remove-regular="${escapeAttr(name)}">Remove</button>
       </li>
     `).join('');
   }
@@ -1280,8 +1324,8 @@ function renderAdminPanel(){
     const isPermanent = PERMANENT_ADMINS.includes(name);
     return `
       <li>
-        <span>${name}${isPermanent ? '<span class="tag">Permanent</span>' : '<span class="tag">Admin</span>'}</span>
-        ${!isPermanent ? `<button onclick="demoteAdmin('${name.replace(/'/g,"\\'")}')">Remove</button>` : ''}
+        <span>${escapeHtml(name)}${isPermanent ? '<span class="tag">Permanent</span>' : '<span class="tag">Admin</span>'}</span>
+        ${!isPermanent ? `<button data-demote="${escapeAttr(name)}">Remove</button>` : ''}
       </li>
     `;
   }).join('');
@@ -1531,16 +1575,38 @@ function initApp(){
   });
 
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') clearAppBadgeEverywhere();
+    if (document.visibilityState !== 'visible') return;
+    clearAppBadgeEverywhere();
+    // Backgrounded tabs stop polling, so catch up immediately on return
+    // rather than showing stale data for up to another 15s.
+    poll();
   });
 
-  setInterval(async () => {
-    if (document.getElementById('sessionModal').classList.contains('open')) return;
-    await fetchAttendance();
-    await fetchAdmins();
-    refreshAdminUI();
-    renderCalendar();
-  }, 15000);
+  setInterval(poll, POLL_INTERVAL_MS);
+}
+
+const POLL_INTERVAL_MS = 15000;
+let polling = false;
+
+async function poll(){
+  // Don't poll a backgrounded tab - on a phone that was a request every 15s
+  // for a screen nobody is looking at.
+  if (document.visibilityState !== 'visible') return;
+  if (document.getElementById('sessionModal').classList.contains('open')) return;
+  if (polling) return;
+  polling = true;
+  try {
+    const [attendanceChanged, adminsChanged] = await Promise.all([
+      fetchAttendance(),
+      fetchAdmins(),
+    ]);
+    if (adminsChanged) refreshAdminUI();
+    // Re-rendering 42 cells when nothing moved is pure waste; the vast
+    // majority of polls come back identical.
+    if (attendanceChanged || adminsChanged) renderCalendar();
+  } finally {
+    polling = false;
+  }
 }
 
 // Notifications deep-link as /?session=YYYY-MM-DD. Jump straight to that
@@ -1569,6 +1635,13 @@ function clearAppBadgeEverywhere(){
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  // Delegated handlers for name-carrying buttons, registered once on the
+  // static containers rather than re-created with every innerHTML rebuild.
+  delegateNameAction('playerGrid', 'data-player', selectPlayer);
+  delegateNameAction('modalAttendees', 'data-admin-remove', adminRemove);
+  delegateNameAction('rosterListUI', 'data-remove-regular', removeRegular);
+  delegateNameAction('adminListUI', 'data-demote', demoteAdmin);
+
   if (sessionStorage.getItem('gabruAuthed') === 'true'){
     document.getElementById('gateScreen').classList.add('hidden');
     await enterApp();

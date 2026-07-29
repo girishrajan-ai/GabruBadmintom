@@ -1,6 +1,7 @@
 import { getStore } from "@netlify/blobs";
 import { sendPushToAll } from "./push.js";
 import { formatSessionLabel, sessionUrl } from "./_shared/session.js";
+import { jsonWithEtag } from "./_shared/http.js";
 
 const STORE_NAME = "gabru-banter";
 const KEY = "banter";
@@ -31,15 +32,14 @@ async function shouldNotifyBanter(store, sessionKey) {
 }
 
 export default async (req) => {
-  const store = getStore({ name: STORE_NAME, consistency: "strong" });
-
   if (req.method === "GET") {
+    // Eventual consistency + ETag on the read path; see attendance.js.
+    const store = getStore({ name: STORE_NAME });
     const data = (await store.get(KEY, { type: "json" })) || {};
-    return new Response(JSON.stringify(data), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonWithEtag(req, data);
   }
+
+  const store = getStore({ name: STORE_NAME, consistency: "strong" });
 
   if (req.method === "POST") {
     let body;

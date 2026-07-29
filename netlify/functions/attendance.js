@@ -1,6 +1,7 @@
 import { getStore } from "@netlify/blobs";
 import { sendPushToAll } from "./push.js";
 import { formatSessionLabel, sessionUrl } from "./_shared/session.js";
+import { jsonWithEtag } from "./_shared/http.js";
 
 const STORE_NAME = "gabru-attendance";
 const KEY = "attendance";
@@ -113,16 +114,17 @@ async function notify(action, sessionKey, session, attendeesBefore, countBefore)
 }
 
 export default async (req) => {
-  const store = getStore({ name: STORE_NAME, consistency: "strong" });
-
   if (req.method === "GET") {
+    // Reads use the default (eventual) consistency: strong consistency
+    // bypasses the edge cache and is measurably slower, and this endpoint is
+    // polled constantly by clients that already tolerate 15s of staleness.
+    // Strong consistency is reserved for the read-modify-write below.
+    const store = getStore({ name: STORE_NAME });
     const raw = (await store.get(KEY, { type: "json" })) || {};
-    const data = normalizeAll(raw);
-    return new Response(JSON.stringify(data), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonWithEtag(req, normalizeAll(raw));
   }
+
+  const store = getStore({ name: STORE_NAME, consistency: "strong" });
 
   if (req.method === "POST") {
     let body;

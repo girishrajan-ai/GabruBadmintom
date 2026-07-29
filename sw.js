@@ -1,19 +1,78 @@
-const CACHE_NAME = 'gabru-badminton-v1';
+const CACHE_NAME = 'gabru-badminton-v2';
+const SHELL = [
+  '/',
+  '/index.html',
+  '/manifest.json',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/icon-maskable-192.png',
+  '/icons/icon-maskable-512.png',
+];
 
 self.addEventListener('install', (event) => {
-  self.skipWaiting();
+  // Precache the shell so a cold launch doesn't wait on the network for the
+  // HTML and every icon. Previously nothing was ever written to the cache, so
+  // the offline fallback below could only ever miss.
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(SHELL))
+      .catch(() => {})
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      const names = await caches.keys();
+      await Promise.all(
+        names
+          .filter((n) => n.startsWith('gabru-badminton-') && n !== CACHE_NAME)
+          .map((n) => caches.delete(n))
+      );
+      await self.clients.claim();
+    })()
+  );
 });
 
-// Network-first for the app shell so updates land quickly;
-// this app is mostly live-synced data anyway, so heavy caching would be counterproductive.
 self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
+  const req = event.request;
+  if (req.method !== 'GET') return;
+
+  const url = new URL(req.url);
+  // Live data and anything off-origin goes straight to the network - there is
+  // no point putting the service worker in front of our own API calls.
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/api/')) return;
+
+  // Static assets never change without a filename change: serve from cache and
+  // refresh in the background.
+  const isAsset = url.pathname.startsWith('/icons/') || url.pathname === '/manifest.json';
+  // The HTML is stale-while-revalidate: paint instantly from cache, then pick
+  // up the new version on the next launch.
+  const isShell = req.mode === 'navigate' || url.pathname === '/' || url.pathname === '/index.html';
+
+  if (!isAsset && !isShell) return;
+
   event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request))
+    (async () => {
+      const cache = await caches.open(CACHE_NAME);
+      // Notification deep links arrive as /?session=..., so all navigations
+      // share one cache entry rather than accumulating one per session.
+      const cacheKey = isShell ? '/index.html' : req;
+      const cached = await cache.match(cacheKey);
+      const network = fetch(req)
+        .then((res) => {
+          if (res && res.ok) cache.put(cacheKey, res.clone()).catch(() => {});
+          return res;
+        })
+        .catch(() => null);
+
+      if (cached) return cached;
+      const res = await network;
+      if (res) return res;
+      return new Response('Offline', { status: 503, statusText: 'Offline' });
+    })()
   );
 });
 

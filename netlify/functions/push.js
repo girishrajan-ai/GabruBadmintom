@@ -64,6 +64,18 @@ export async function sendPushToAll(title, message, url, opts = {}) {
 }
 
 export default async (req) => {
+  if (req.method === "GET") {
+    // Expose the public key so the frontend can subscribe. It's a build-time
+    // constant, so let the browser and edge hold on to it.
+    return new Response(JSON.stringify({ publicKey: VAPID_PUBLIC_KEY || null }), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "public, max-age=86400",
+      },
+    });
+  }
+
   const store = getStore({ name: STORE_NAME, consistency: "strong" });
 
   if (req.method === "POST") {
@@ -127,14 +139,6 @@ export default async (req) => {
 
     return new Response(JSON.stringify({ error: "Invalid action" }), {
       status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
-  if (req.method === "GET") {
-    // Expose the public key so the frontend can subscribe
-    return new Response(JSON.stringify({ publicKey: VAPID_PUBLIC_KEY || null }), {
-      status: 200,
       headers: { "Content-Type": "application/json" },
     });
   }

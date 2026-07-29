@@ -442,6 +442,7 @@
     <button class="switch-player-link" onclick="switchPlayer()">Not you? Switch player</button>
     <button id="enableNotifsBtn" class="switch-player-link hidden" onclick="enablePushNotifications()">🔔 Enable notifications</button>
     <p id="notifsStatus" class="hidden notifs-status">🔔 Notifications on</p>
+    <button id="disableNotifsBtn" class="switch-player-link hidden" onclick="disablePushNotifications()">Turn notifications off</button>
   </div>
 
   <button class="whatsapp-share-btn" onclick="shareToWhatsApp()">
@@ -833,6 +834,7 @@ function setName(name){
   localStorage.setItem('badmintonName', name);
   refreshAdminUI();
   renderCalendar();
+  syncSubscriptionName();
 }
 async function switchPlayer(){
   document.getElementById('mainApp').classList.add('hidden');
@@ -1397,31 +1399,66 @@ async function registerServiceWorker(){
 async function checkNotificationStatus(){
   const enableBtn = document.getElementById('enableNotifsBtn');
   const statusText = document.getElementById('notifsStatus');
+  const disableBtn = document.getElementById('disableNotifsBtn');
+  const show = (el, on) => el.classList.toggle('hidden', !on);
 
   if (!('serviceWorker' in navigator) || !('PushManager' in window)){
     // Not supported on this browser (e.g. older iOS Safari not added to home screen)
-    enableBtn.classList.add('hidden');
-    statusText.classList.add('hidden');
+    show(enableBtn, false); show(statusText, false); show(disableBtn, false);
     return;
   }
 
   if (Notification.permission === 'granted' && swRegistration){
     const sub = await swRegistration.pushManager.getSubscription();
     if (sub){
-      enableBtn.classList.add('hidden');
-      statusText.classList.remove('hidden');
+      show(enableBtn, false); show(statusText, true); show(disableBtn, true);
       return;
     }
   }
 
   if (Notification.permission === 'denied'){
-    enableBtn.classList.add('hidden');
-    statusText.classList.add('hidden');
+    show(enableBtn, false); show(statusText, false); show(disableBtn, false);
     return;
   }
 
-  enableBtn.classList.remove('hidden');
-  statusText.classList.add('hidden');
+  show(enableBtn, true); show(statusText, false); show(disableBtn, false);
+}
+
+// The server targets notifications by player name (cancellations go to the
+// people who joined, banter skips its own author), so the stored subscription
+// has to follow a player switch or the wrong phone gets the message.
+async function syncSubscriptionName(){
+  if (!swRegistration || !('PushManager' in window)) return;
+  try {
+    const sub = await swRegistration.pushManager.getSubscription();
+    if (!sub) return;
+    await fetch('/api/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'subscribe', subscription: sub, name: loadName() || null }),
+    });
+  } catch (err) {
+    console.error('Could not update subscription name:', err);
+  }
+}
+
+async function disablePushNotifications(){
+  if (!swRegistration) return;
+  try {
+    const sub = await swRegistration.pushManager.getSubscription();
+    if (sub){
+      await fetch('/api/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'unsubscribe', endpoint: sub.endpoint }),
+      });
+      await sub.unsubscribe();
+    }
+    checkNotificationStatus();
+  } catch (err) {
+    console.error('Unsubscribe error:', err);
+    alert('Could not turn notifications off - please try again.');
+  }
 }
 
 async function enablePushNotifications(){
@@ -1487,6 +1524,7 @@ function initApp(){
 
   registerServiceWorker().then(() => checkNotificationStatus());
   clearAppBadgeEverywhere();
+  openSessionFromUrl();
 
   document.getElementById('sessionModal').addEventListener('click', (e) => {
     if (e.target.id === 'sessionModal') closeModal();
@@ -1503,6 +1541,19 @@ function initApp(){
     refreshAdminUI();
     renderCalendar();
   }, 15000);
+}
+
+// Notifications deep-link as /?session=YYYY-MM-DD. Jump straight to that
+// session and then strip the param so a refresh doesn't reopen the modal.
+function openSessionFromUrl(){
+  const key = new URLSearchParams(location.search).get('session');
+  if (!key) return;
+  history.replaceState(null, '', location.pathname);
+  if (!SESSIONS.has(key)) return;
+  const [y, m, d] = key.split('-').map(Number);
+  currentDate = new Date(y, m - 1, 1);
+  renderCalendar();
+  openModal(key, getAttendees(key), isCancelled(key));
 }
 
 function clearAppBadgeEverywhere(){

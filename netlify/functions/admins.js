@@ -129,8 +129,9 @@ export default async (req) => {
     const allAdmins = Array.from(new Set([...PERMANENT_ADMINS, ...stored.admins]));
 
     if (action === "set-banner") {
+      // Awaited so the push isn't cut short when the invocation returns.
       try {
-        sendPushToAll("📌 New announcement", stored.banner.text, "/").catch(() => {});
+        await sendPushToAll("📌 New announcement", stored.banner.text, "/", { tag: "announcement" });
       } catch (e) {
         // never let notification errors affect the response
       }

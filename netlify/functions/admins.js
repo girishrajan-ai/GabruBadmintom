@@ -1,5 +1,6 @@
 import { getStore } from "@netlify/blobs";
 import { sendPushToAll } from "./push.js";
+import { jsonWithEtag } from "./_shared/http.js";
 
 const STORE_NAME = "gabru-admins";
 const KEY = "admins";
@@ -9,19 +10,20 @@ const DEFAULT_CAPACITY = 6;
 const PERMANENT_ADMINS = ["Aamer", "Deep"];
 
 export default async (req) => {
-  const store = getStore({ name: STORE_NAME, consistency: "strong" });
-
   if (req.method === "GET") {
+    // Eventual consistency + ETag on the read path; see attendance.js.
+    const store = getStore({ name: STORE_NAME });
     const stored = (await store.get(KEY, { type: "json" })) || { admins: [], capacity: DEFAULT_CAPACITY, roster: [], banner: null };
     const allAdmins = Array.from(new Set([...PERMANENT_ADMINS, ...(stored.admins || [])]));
-    const capacity = stored.capacity || DEFAULT_CAPACITY;
-    const roster = stored.roster || [];
-    const banner = stored.banner || null;
-    return new Response(JSON.stringify({ admins: allAdmins, capacity, roster, banner }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
+    return jsonWithEtag(req, {
+      admins: allAdmins,
+      capacity: stored.capacity || DEFAULT_CAPACITY,
+      roster: stored.roster || [],
+      banner: stored.banner || null,
     });
   }
+
+  const store = getStore({ name: STORE_NAME, consistency: "strong" });
 
   if (req.method === "POST") {
     let body;
@@ -129,8 +131,9 @@ export default async (req) => {
     const allAdmins = Array.from(new Set([...PERMANENT_ADMINS, ...stored.admins]));
 
     if (action === "set-banner") {
+      // Awaited so the push isn't cut short when the invocation returns.
       try {
-        sendPushToAll("📌 New announcement", stored.banner.text, "/").catch(() => {});
+        await sendPushToAll("📌 New announcement", stored.banner.text, "/", { tag: "announcement" });
       } catch (e) {
         // never let notification errors affect the response
       }

@@ -1,29 +1,45 @@
 import { getStore } from "@netlify/blobs";
 import { sendPushToAll } from "./push.js";
+import { formatSessionLabel, sessionUrl } from "./_shared/session.js";
+import { jsonWithEtag } from "./_shared/http.js";
 
 const STORE_NAME = "gabru-banter";
 const KEY = "banter";
+const PUSH_META_KEY = "push-meta";
 const MAX_MESSAGE_LENGTH = 200;
 const MAX_MESSAGES_PER_SESSION = 100;
+// A back-and-forth in the banter thread shouldn't buzz everyone's phone on
+// every line. One notification per session per window; the tag makes any that
+// do get through replace the previous one rather than stack.
+const PUSH_THROTTLE_MS = 5 * 60 * 1000;
 
-function formatSessionLabel(sessionKey) {
-  const [y, m, d] = sessionKey.split("-").map(Number);
-  const date = new Date(y, m - 1, d);
-  const dayName = date.getDay() === 2 ? "Tuesday" : "Thursday";
-  const dateLabel = date.toLocaleDateString("en-AU", { month: "short", day: "numeric" });
-  return `${dayName}, ${dateLabel}`;
+async function shouldNotifyBanter(store, sessionKey) {
+  const now = Date.now();
+  let meta;
+  try {
+    meta = (await store.get(PUSH_META_KEY, { type: "json" })) || {};
+  } catch {
+    return true; // metadata is only an optimisation - never block a push on it
+  }
+  if (meta[sessionKey] && now - meta[sessionKey] < PUSH_THROTTLE_MS) return false;
+  meta[sessionKey] = now;
+  try {
+    await store.setJSON(PUSH_META_KEY, meta);
+  } catch {
+    // ignore
+  }
+  return true;
 }
 
 export default async (req) => {
-  const store = getStore({ name: STORE_NAME, consistency: "strong" });
-
   if (req.method === "GET") {
+    // Eventual consistency + ETag on the read path; see attendance.js.
+    const store = getStore({ name: STORE_NAME });
     const data = (await store.get(KEY, { type: "json" })) || {};
-    return new Response(JSON.stringify(data), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonWithEtag(req, data);
   }
+
+  const store = getStore({ name: STORE_NAME, consistency: "strong" });
 
   if (req.method === "POST") {
     let body;
@@ -87,13 +103,18 @@ export default async (req) => {
     await store.setJSON(KEY, data);
 
     if (action === "post") {
+      // Awaited deliberately: a floating promise can be killed when the
+      // serverless invocation is frozen on return, so pushes get dropped.
       try {
-        const preview = message.trim().slice(0, MAX_MESSAGE_LENGTH);
-        sendPushToAll(
-          `💬 New banter — ${formatSessionLabel(sessionKey)}`,
-          `${name}: ${preview}`,
-          "/"
-        ).catch(() => {});
+        if (await shouldNotifyBanter(store, sessionKey)) {
+          const preview = message.trim().slice(0, MAX_MESSAGE_LENGTH);
+          await sendPushToAll(
+            `💬 New banter — ${formatSessionLabel(sessionKey)}`,
+            `${name}: ${preview}`,
+            sessionUrl(sessionKey),
+            { excludeName: name, tag: `banter-${sessionKey}` }
+          );
+        }
       } catch (e) {
         // never let notification errors affect the response
       }

@@ -1,19 +1,78 @@
-const CACHE_NAME = 'gabru-badminton-v1';
+const CACHE_NAME = 'gabru-badminton-v2';
+const SHELL = [
+  '/',
+  '/index.html',
+  '/manifest.json',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/icon-maskable-192.png',
+  '/icons/icon-maskable-512.png',
+];
 
 self.addEventListener('install', (event) => {
-  self.skipWaiting();
+  // Precache the shell so a cold launch doesn't wait on the network for the
+  // HTML and every icon. Previously nothing was ever written to the cache, so
+  // the offline fallback below could only ever miss.
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(SHELL))
+      .catch(() => {})
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      const names = await caches.keys();
+      await Promise.all(
+        names
+          .filter((n) => n.startsWith('gabru-badminton-') && n !== CACHE_NAME)
+          .map((n) => caches.delete(n))
+      );
+      await self.clients.claim();
+    })()
+  );
 });
 
-// Network-first for the app shell so updates land quickly;
-// this app is mostly live-synced data anyway, so heavy caching would be counterproductive.
 self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
+  const req = event.request;
+  if (req.method !== 'GET') return;
+
+  const url = new URL(req.url);
+  // Live data and anything off-origin goes straight to the network - there is
+  // no point putting the service worker in front of our own API calls.
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/api/')) return;
+
+  // Static assets never change without a filename change: serve from cache and
+  // refresh in the background.
+  const isAsset = url.pathname.startsWith('/icons/') || url.pathname === '/manifest.json';
+  // The HTML is stale-while-revalidate: paint instantly from cache, then pick
+  // up the new version on the next launch.
+  const isShell = req.mode === 'navigate' || url.pathname === '/' || url.pathname === '/index.html';
+
+  if (!isAsset && !isShell) return;
+
   event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request))
+    (async () => {
+      const cache = await caches.open(CACHE_NAME);
+      // Notification deep links arrive as /?session=..., so all navigations
+      // share one cache entry rather than accumulating one per session.
+      const cacheKey = isShell ? '/index.html' : req;
+      const cached = await cache.match(cacheKey);
+      const network = fetch(req)
+        .then((res) => {
+          if (res && res.ok) cache.put(cacheKey, res.clone()).catch(() => {});
+          return res;
+        })
+        .catch(() => null);
+
+      if (cached) return cached;
+      const res = await network;
+      if (res) return res;
+      return new Response('Offline', { status: 503, statusText: 'Offline' });
+    })()
   );
 });
 
@@ -32,6 +91,11 @@ self.addEventListener('push', (event) => {
     badge: '/icons/icon-192.png',
     data: { url: data.url || '/' },
     vibrate: [100, 50, 100],
+    // A tag collapses related pushes (same session, same thread) into one
+    // notification instead of a growing stack. renotify still alerts the user
+    // that the collapsed notification has been updated.
+    tag: data.tag || undefined,
+    renotify: data.tag ? true : undefined,
   };
 
   event.waitUntil(
@@ -88,6 +152,48 @@ self.addEventListener('message', (event) => {
   }
 });
 
+// Push services rotate endpoints periodically. Without this the subscription
+// silently dies and the user keeps thinking notifications are on.
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    (async () => {
+      try {
+        const keyRes = await fetch('/api/push');
+        const { publicKey } = await keyRes.json();
+        if (!publicKey) return;
+        const subscription = await self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey),
+        });
+        const oldEndpoint = event.oldSubscription && event.oldSubscription.endpoint;
+        if (oldEndpoint) {
+          await fetch('/api/push', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'unsubscribe', endpoint: oldEndpoint }),
+          });
+        }
+        await fetch('/api/push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'subscribe', subscription }),
+        });
+      } catch (e) {
+        // nothing useful we can do from here
+      }
+    })()
+  );
+});
+
+function urlBase64ToUint8Array(base64String){
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const url = (event.notification.data && event.notification.data.url) || '/';
@@ -97,13 +203,20 @@ self.addEventListener('notificationclick', (event) => {
       if ('clearAppBadge' in self.navigator){
         try { await self.navigator.clearAppBadge(); } catch (e) {}
       }
+      const target = new URL(url, self.location.origin);
       const clientList = await clients.matchAll({ type: 'window', includeUncontrolled: true });
       for (const client of clientList) {
-        if (client.url.includes(self.location.origin) && 'focus' in client) {
+        if (client.url.startsWith(self.location.origin) && 'focus' in client) {
+          // Navigate the existing tab to the deep link before focusing it,
+          // otherwise tapping a session notification just reveals whatever
+          // the app happened to be showing.
+          if ('navigate' in client && client.url !== target.href) {
+            try { await client.navigate(target.href); } catch (e) {}
+          }
           return client.focus();
         }
       }
-      if (clients.openWindow) return clients.openWindow(url);
+      if (clients.openWindow) return clients.openWindow(target.href);
     })()
   );
 });

@@ -14,38 +14,68 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
 
 // Exported so attendance.js and admins.js can trigger notifications directly
 // (no HTTP round-trip needed - same runtime, same Blobs account).
-export async function sendPushToAll(title, message, url) {
+//
+// opts:
+//   excludeName  - don't notify this person (e.g. the author of a banter message)
+//   excludeNames - array; don't notify any of these (e.g. people already joined)
+//   onlyNames    - array; if present, only notify subscribers whose name is in it
+//   tag         - notification tag, so a burst of related pushes collapses into
+//                 one notification on the device instead of stacking up
+export async function sendPushToAll(title, message, url, opts = {}) {
   if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) return { ok: false, reason: "not-configured" };
 
   const store = getStore({ name: STORE_NAME, consistency: "strong" });
   const stored = (await store.get(KEY, { type: "json" })) || { subs: [] };
   if (stored.subs.length === 0) return { ok: true, sent: 0, total: 0 };
 
-  const payload = JSON.stringify({ title, body: message, url: url || "/" });
+  const { excludeName, excludeNames, onlyNames, tag } = opts;
+  const targets = stored.subs.filter((sub) => {
+    if (excludeName && sub.name === excludeName) return false;
+    if (excludeNames && sub.name && excludeNames.includes(sub.name)) return false;
+    // Subscribers who never told us their name still get broadcasts, but are
+    // left out of name-targeted sends since we can't tell if they qualify.
+    if (onlyNames && !(sub.name && onlyNames.includes(sub.name))) return false;
+    return true;
+  });
+  if (targets.length === 0) return { ok: true, sent: 0, total: 0 };
+
+  const payload = JSON.stringify({ title, body: message, url: url || "/", tag: tag || null });
 
   const results = await Promise.allSettled(
-    stored.subs.map((sub) =>
+    targets.map((sub) =>
       webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, payload)
     )
   );
 
-  const stillValid = [];
+  // Drop endpoints the push service has retired. Anything else (timeouts,
+  // 5xx) is treated as transient and the subscription is kept.
+  const dead = new Set();
   results.forEach((r, i) => {
-    if (r.status === "fulfilled") {
-      stillValid.push(stored.subs[i]);
-    } else if (r.reason && (r.reason.statusCode === 410 || r.reason.statusCode === 404)) {
-      // expired subscription, drop it
-    } else {
-      stillValid.push(stored.subs[i]);
+    if (r.status === "rejected" && r.reason && (r.reason.statusCode === 410 || r.reason.statusCode === 404)) {
+      dead.add(targets[i].endpoint);
     }
   });
-  stored.subs = stillValid;
-  await store.setJSON(KEY, stored);
+  if (dead.size > 0) {
+    stored.subs = stored.subs.filter((s) => !dead.has(s.endpoint));
+    await store.setJSON(KEY, stored);
+  }
 
   return { ok: true, sent: results.filter(r => r.status === 'fulfilled').length, total: results.length };
 }
 
 export default async (req) => {
+  if (req.method === "GET") {
+    // Expose the public key so the frontend can subscribe. It's a build-time
+    // constant, so let the browser and edge hold on to it.
+    return new Response(JSON.stringify({ publicKey: VAPID_PUBLIC_KEY || null }), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "public, max-age=86400",
+      },
+    });
+  }
+
   const store = getStore({ name: STORE_NAME, consistency: "strong" });
 
   if (req.method === "POST") {
@@ -109,14 +139,6 @@ export default async (req) => {
 
     return new Response(JSON.stringify({ error: "Invalid action" }), {
       status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
-  if (req.method === "GET") {
-    // Expose the public key so the frontend can subscribe
-    return new Response(JSON.stringify({ publicKey: VAPID_PUBLIC_KEY || null }), {
-      status: 200,
       headers: { "Content-Type": "application/json" },
     });
   }

@@ -1,11 +1,25 @@
 import { getStore } from "@netlify/blobs";
 import { sendPushToAll } from "./push.js";
+import { formatSessionLabel, sessionUrl } from "./_shared/session.js";
+import { jsonWithEtag } from "./_shared/http.js";
 
 const STORE_NAME = "gabru-attendance";
 const KEY = "attendance";
 const ADMIN_STORE_NAME = "gabru-admins";
 const ADMIN_KEY = "admins";
-const AMBER_THRESHOLD = 4;
+const DEFAULT_CAPACITY = 6;
+// How many free spots left when we nudge people that it's filling up.
+const NUDGE_AT_SPOTS_LEFT = 2;
+
+async function getCapacity() {
+  try {
+    const store = getStore({ name: ADMIN_STORE_NAME });
+    const stored = await store.get(ADMIN_KEY, { type: "json" });
+    return (stored && stored.capacity) || DEFAULT_CAPACITY;
+  } catch {
+    return DEFAULT_CAPACITY;
+  }
+}
 
 // Backward-compatible normalizer: old data shape was { sessionKey: [names] }.
 // New shape is { sessionKey: { attendees: [names], cancelled: bool } }.
@@ -28,25 +42,89 @@ function normalizeAll(data) {
   return out;
 }
 
-function formatSessionLabel(sessionKey) {
-  const [y, m, d] = sessionKey.split("-").map(Number);
-  const date = new Date(y, m - 1, d);
-  const dayName = date.getDay() === 2 ? "Tuesday" : "Thursday";
-  const dateLabel = date.toLocaleDateString("en-AU", { month: "short", day: "numeric" });
-  return `${dayName}, ${dateLabel}`;
+// All attendance-driven notifications live here so the targeting rules are in
+// one place. Every send is tagged per session, so a flurry of joins collapses
+// into a single notification on the device rather than a stack of them.
+async function notify(action, sessionKey, session, attendeesBefore, countBefore) {
+  const label = formatSessionLabel(sessionKey);
+  const url = sessionUrl(sessionKey);
+  const tag = `session-${sessionKey}`;
+  const attendees = session.attendees;
+  const countAfter = attendees.length;
+
+  if (action === "cancel-session") {
+    // Only the people who had signed up actually need to know.
+    return sendPushToAll(
+      "Session cancelled 🚫",
+      `${label} has been cancelled.`,
+      url,
+      { onlyNames: attendeesBefore, tag }
+    );
+  }
+
+  if (action === "uncancel-session") {
+    return sendPushToAll(
+      "Session back on! 🏸",
+      `${label} is no longer cancelled - see you there.`,
+      url,
+      { onlyNames: attendeesBefore, tag }
+    );
+  }
+
+  if (session.cancelled) return; // don't nudge about a cancelled session
+
+  const capacity = await getCapacity();
+  const nudgeAt = Math.max(1, capacity - NUDGE_AT_SPOTS_LEFT);
+
+  if (action === "join") {
+    // Fires once per session, on the join that crosses the line. People who
+    // already joined don't need to be told the session is filling up.
+    if (countBefore < capacity && countAfter >= capacity) {
+      return sendPushToAll(
+        "Full squad! 🏸",
+        `${label} is full with ${countAfter} confirmed.`,
+        url,
+        { excludeNames: attendees, tag }
+      );
+    }
+    if (countBefore < nudgeAt && countAfter >= nudgeAt) {
+      const left = Math.max(0, capacity - countAfter);
+      return sendPushToAll(
+        "Session filling up! 🏸",
+        `${label} has ${countAfter}/${capacity} confirmed - ${left} spot${left === 1 ? "" : "s"} left.`,
+        url,
+        { excludeNames: attendees, tag }
+      );
+    }
+    return;
+  }
+
+  if (action === "leave" || action === "admin-remove") {
+    // A spot opening up on a full session is the one drop worth interrupting
+    // people for - it's the moment someone else can actually get in.
+    if (countBefore >= capacity && countAfter < capacity) {
+      return sendPushToAll(
+        "A spot opened up 🏸",
+        `${label} now has ${countAfter}/${capacity} - grab it.`,
+        url,
+        { excludeNames: attendees, tag }
+      );
+    }
+  }
 }
 
 export default async (req) => {
-  const store = getStore({ name: STORE_NAME, consistency: "strong" });
-
   if (req.method === "GET") {
+    // Reads use the default (eventual) consistency: strong consistency
+    // bypasses the edge cache and is measurably slower, and this endpoint is
+    // polled constantly by clients that already tolerate 15s of staleness.
+    // Strong consistency is reserved for the read-modify-write below.
+    const store = getStore({ name: STORE_NAME });
     const raw = (await store.get(KEY, { type: "json" })) || {};
-    const data = normalizeAll(raw);
-    return new Response(JSON.stringify(data), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonWithEtag(req, normalizeAll(raw));
   }
+
+  const store = getStore({ name: STORE_NAME, consistency: "strong" });
 
   if (req.method === "POST") {
     let body;
@@ -75,8 +153,8 @@ export default async (req) => {
       data[sessionKey] = { attendees: [], cancelled: false };
     }
 
-    const countBefore = data[sessionKey].attendees.length;
-    let shouldNotifyThreshold = false;
+    const attendeesBefore = data[sessionKey].attendees.slice();
+    const countBefore = attendeesBefore.length;
 
     if (action === "join") {
       if (!name) {
@@ -88,11 +166,6 @@ export default async (req) => {
       if (data[sessionKey].attendees.indexOf(name) === -1) {
         data[sessionKey].attendees.push(name);
         data[sessionKey].attendees.sort();
-      }
-      const countAfter = data[sessionKey].attendees.length;
-      // Notify once, exactly when crossing into "filling up" territory
-      if (countBefore < AMBER_THRESHOLD && countAfter >= AMBER_THRESHOLD) {
-        shouldNotifyThreshold = true;
       }
     } else if (action === "leave") {
       if (!name) {
@@ -128,23 +201,12 @@ export default async (req) => {
 
     await store.setJSON(KEY, data);
 
-    // Fire notifications after the write succeeds. Failures here must never
-    // block the attendance update itself - notification is best-effort.
+    // Fire notifications after the write succeeds. These are awaited: on a
+    // serverless runtime the invocation can be frozen the moment we return, so
+    // a floating promise here means pushes land only some of the time.
+    // Failures must still never fail the attendance update itself.
     try {
-      if (shouldNotifyThreshold) {
-        sendPushToAll(
-          "Session filling up! 🏸",
-          `${formatSessionLabel(sessionKey)} now has ${data[sessionKey].attendees.length} confirmed.`,
-          "/"
-        ).catch(() => {});
-      }
-      if (action === "cancel-session") {
-        sendPushToAll(
-          "Session cancelled 🚫",
-          `${formatSessionLabel(sessionKey)} has been cancelled.`,
-          "/"
-        ).catch(() => {});
-      }
+      await notify(action, sessionKey, data[sessionKey], attendeesBefore, countBefore);
     } catch (e) {
       // never let notification errors affect the response
     }

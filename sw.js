@@ -48,8 +48,11 @@ self.addEventListener('fetch', (event) => {
   // Static assets never change without a filename change: serve from cache and
   // refresh in the background.
   const isAsset = url.pathname.startsWith('/icons/') || url.pathname === '/manifest.json';
-  // The HTML is stale-while-revalidate: paint instantly from cache, then pick
-  // up the new version on the next launch.
+  // The HTML changes with every deploy (new features, bug fixes), so it's
+  // network-first: always get the latest unless the network is unreachable.
+  // Stale-while-revalidate was tried here before, but it means a fixed bug
+  // (e.g. the calendar defaulting to the wrong month) stays visible forever,
+  // since the cached copy is served before the fresh one is even fetched.
   const isShell = req.mode === 'navigate' || url.pathname === '/' || url.pathname === '/index.html';
 
   if (!isAsset && !isShell) return;
@@ -60,6 +63,18 @@ self.addEventListener('fetch', (event) => {
       // Notification deep links arrive as /?session=..., so all navigations
       // share one cache entry rather than accumulating one per session.
       const cacheKey = isShell ? '/index.html' : req;
+
+      if (isShell) {
+        try {
+          const res = await fetch(req);
+          if (res && res.ok) cache.put(cacheKey, res.clone()).catch(() => {});
+          return res;
+        } catch (e) {
+          const cached = await cache.match(cacheKey);
+          return cached || new Response('Offline', { status: 503, statusText: 'Offline' });
+        }
+      }
+
       const cached = await cache.match(cacheKey);
       const network = fetch(req)
         .then((res) => {

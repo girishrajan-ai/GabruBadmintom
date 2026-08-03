@@ -1195,12 +1195,30 @@ function getUpcomingSessions(count){
   return all.filter(k => k >= todayKey).slice(0, count);
 }
 
+// WhatsApp deliberately doesn't let a web link pre-select a specific chat and
+// prefill a message into it (blocked for spam prevention, group links
+// included) - wa.me only ever opens the generic share picker. The closest we
+// can get to "one click to the group" is copying the text and jumping
+// straight to the group chat, so sending it is just paste + tap.
+const WHATSAPP_GROUP_URL = 'https://chat.whatsapp.com/By9jqwqdySeDPONw8Ww9rL?s=cl&p=i&ilr=4&amv=0';
+
+async function shareToWhatsAppGroup(message){
+  try {
+    await navigator.clipboard.writeText(message);
+    window.open(WHATSAPP_GROUP_URL, '_blank');
+    alert('Message copied! Paste it into the group chat and hit send.');
+  } catch (err) {
+    // Clipboard blocked/unavailable - fall back to the share picker, which at
+    // least prefills the text even though the group isn't preselected.
+    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
+  }
+}
+
 function shareToWhatsApp(){
   const upcoming = getUpcomingSessions(2);
 
   if (upcoming.length === 0){
-    const url = `https://wa.me/?text=${encodeURIComponent("🏸 Gabru Badminton - check who's in!\n\ngogabru.com")}`;
-    window.open(url, '_blank');
+    shareToWhatsAppGroup("🏸 Gabru Badminton - check who's in!\n\ngogabru.com");
     return;
   }
 
@@ -1219,8 +1237,7 @@ function shareToWhatsApp(){
   });
 
   const message = `🏸 Gabru Badminton - upcoming sessions:\n\n${blocks.join('\n\n')}\n\nJoin in: gogabru.com`;
-  const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
-  window.open(url, '_blank');
+  shareToWhatsAppGroup(message);
 }
 
 function shareCancellationToWhatsApp(){
@@ -1231,8 +1248,7 @@ function shareCancellationToWhatsApp(){
   const dateLabel = new Date(y, m-1, d).toLocaleDateString('en-AU', { month:'short', day:'numeric' });
 
   const message = `🚫 Heads up - ${dayName} ${dateLabel}'s session has been cancelled.\n\nCheck gogabru.com for updates.`;
-  const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
-  window.open(url, '_blank');
+  shareToWhatsAppGroup(message);
 }
 
 function shareBannerToWhatsApp(){
@@ -1240,8 +1256,7 @@ function shareBannerToWhatsApp(){
   if (!text){ alert('Enter or post a banner message first'); return; }
 
   const message = `📌 Gabru Badminton announcement:\n\n${text}\n\ngogabru.com`;
-  const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
-  window.open(url, '_blank');
+  shareToWhatsAppGroup(message);
 }
 
 function renderWhosOut(){

@@ -597,7 +597,16 @@ function getAttendees(key){ return getSessionData(key).attendees; }
 function isCancelled(key){ return getSessionData(key).cancelled; }
 
 const START_YEAR = 2026, START_MONTH = 6, START_DAY = 1;
-let currentDate = new Date(START_YEAR, START_MONTH, 1);
+// Calendar should open on whatever month it is today, not always on the
+// month sessions started being tracked from - it was hardcoded to
+// START_MONTH before, so the view never advanced past July.
+function defaultCalendarMonth(){
+  const today = new Date();
+  const start = new Date(START_YEAR, START_MONTH, 1);
+  const startOfThisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  return startOfThisMonth < start ? start : startOfThisMonth;
+}
+let currentDate = defaultCalendarMonth();
 let selectedSessionKey = null;
 let attendanceCache = {};
 let adminsCache = [...PERMANENT_ADMINS];

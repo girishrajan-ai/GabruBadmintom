@@ -108,6 +108,26 @@
     border-radius:9px; font-weight:700; font-size:13px; cursor:pointer; min-height:44px;
   }
   .share-wa-icon-btn:hover{ background:#1fb855; }
+  .install-prompt{
+    background:linear-gradient(135deg, #2f6b46 0%, #1f4d31 100%);
+    color:#f4fbf6; border-radius:12px; padding:14px 16px; margin-bottom:16px;
+    box-shadow:0 6px 18px rgba(31,77,49,0.35); position:relative;
+  }
+  .install-prompt h4{ font-size:14px; font-weight:700; margin-bottom:4px; padding-right:22px; }
+  .install-prompt p{ font-size:12.5px; line-height:1.5; opacity:0.9; margin-bottom:10px; }
+  .install-prompt ol{ font-size:12.5px; line-height:1.7; margin:0 0 10px 16px; opacity:0.9; }
+  .install-prompt .prompt-actions{ display:flex; gap:8px; flex-wrap:wrap; }
+  .install-prompt .prompt-btn{
+    padding:9px 14px; background:#fff; color:#1f4d31; border:none; border-radius:8px;
+    font-weight:700; font-size:12.5px; cursor:pointer; min-height:40px;
+  }
+  .install-prompt .prompt-btn:hover{ background:#e8f5ec; }
+  .install-prompt .prompt-dismiss{
+    position:absolute; top:10px; right:10px; background:rgba(255,255,255,0.15); border:none;
+    color:#f4fbf6; width:24px; height:24px; border-radius:50%; font-size:12px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .install-prompt .prompt-dismiss:hover{ background:rgba(255,255,255,0.28); }
   .announcement-banner{
     background: linear-gradient(135deg, var(--gold) 0%, #c98f2a 100%);
     color:#3a2a0a; border-radius:12px; padding:13px 16px; margin-bottom:16px;
@@ -449,6 +469,13 @@
     <span class="wa-icon">💬</span> Share update on WhatsApp
   </button>
 
+  <div id="installPrompt" class="hidden install-prompt">
+    <button class="prompt-dismiss" onclick="dismissInstallPrompt()" title="Dismiss">✕</button>
+    <h4 id="installPromptTitle"></h4>
+    <div id="installPromptBody"></div>
+    <div class="prompt-actions" id="installPromptActions"></div>
+  </div>
+
   <div id="announcementBanner" class="hidden announcement-banner">
     <span id="announcementText"></span>
     <button id="dismissBannerBtn" class="hidden" onclick="clearBanner()" title="Remove announcement">✕</button>
@@ -637,7 +664,11 @@ function formatLongDate(y,m,d){
 async function checkPassword(){
   const input = document.getElementById('gatePassword').value;
   if (input === GROUP_PASSWORD){
-    sessionStorage.setItem('gabruAuthed', 'true');
+    // localStorage, not sessionStorage: sessionStorage is wiped every time the
+    // tab or the installed PWA is closed, which is why the password kept
+    // being asked for again. localStorage persists until the user clears
+    // site data, so this is a one-time entry per device.
+    localStorage.setItem('gabruAuthed', 'true');
     document.getElementById('gateScreen').classList.add('hidden');
     await enterApp();
   } else {
@@ -1522,6 +1553,9 @@ async function disablePushNotifications(){
       });
       await sub.unsubscribe();
     }
+    // Turning notifications off is a deliberate choice - don't nag them with
+    // the enable prompt on the very next load.
+    localStorage.setItem('gabruPromptSnoozedUntil', String(Date.now() + 30 * 24 * 60 * 60 * 1000));
     checkNotificationStatus();
   } catch (err) {
     console.error('Unsubscribe error:', err);
@@ -1586,11 +1620,125 @@ async function enablePushNotifications(){
   }
 }
 
+// ---- Install / notification onboarding -------------------------------------
+// Two different nudges depending on where the user is:
+//   1. Browser, app not installed  -> prompt to install the PWA. On iOS push
+//      notifications ONLY work from an installed PWA, so this step is a hard
+//      prerequisite there, not just a nicety.
+//   2. Installed, notifications off -> prompt to turn notifications on.
+
+let deferredInstallPrompt = null;
+
+function isStandalone(){
+  return window.matchMedia('(display-mode: standalone)').matches
+    || window.navigator.standalone === true;
+}
+
+function isIOS(){
+  return /iphone|ipad|ipod/i.test(navigator.userAgent)
+    // iPadOS 13+ reports as a Mac; the touch points check distinguishes it.
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+// Chrome/Edge/Android fire this instead of installing directly, letting us
+// show our own prompt and trigger the native one on demand.
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  refreshInstallPrompt();
+});
+
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  refreshInstallPrompt();
+});
+
+function dismissInstallPrompt(){
+  // Snooze rather than dismiss forever - people change their minds, and the
+  // notification nudge in particular is worth asking again later.
+  localStorage.setItem('gabruPromptSnoozedUntil', String(Date.now() + 7 * 24 * 60 * 60 * 1000));
+  document.getElementById('installPrompt').classList.add('hidden');
+}
+
+function promptSnoozed(){
+  const until = parseInt(localStorage.getItem('gabruPromptSnoozedUntil') || '0', 10);
+  return Date.now() < until;
+}
+
+async function triggerInstall(){
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  try { await deferredInstallPrompt.userChoice; } catch (e) {}
+  deferredInstallPrompt = null;
+  refreshInstallPrompt();
+}
+
+async function refreshInstallPrompt(){
+  const box = document.getElementById('installPrompt');
+  const title = document.getElementById('installPromptTitle');
+  const body = document.getElementById('installPromptBody');
+  const actions = document.getElementById('installPromptActions');
+  if (!box) return;
+
+  const hide = () => box.classList.add('hidden');
+  if (promptSnoozed()) return hide();
+
+  const installed = isStandalone();
+  const pushSupported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+
+  if (!installed){
+    title.textContent = '📲 Install the app';
+    actions.replaceChildren();
+
+    if (deferredInstallPrompt){
+      body.innerHTML = '<p>Add Gabru Badminton to your home screen for one-tap access and match notifications.</p>';
+      const btn = document.createElement('button');
+      btn.className = 'prompt-btn';
+      btn.textContent = 'Install app';
+      btn.addEventListener('click', triggerInstall);
+      actions.appendChild(btn);
+    } else if (isIOS()){
+      // iOS has no install API - the only path is the Share sheet, and push
+      // notifications simply don't exist in Safari until the app is installed.
+      body.innerHTML = '<p>Notifications need the app installed on iPhone. It only takes a second:</p>'
+        + '<ol><li>Tap the Share button <strong>⎋</strong> in Safari</li>'
+        + '<li>Choose <strong>Add to Home Screen</strong></li>'
+        + '<li>Open it from your home screen</li></ol>';
+    } else {
+      body.innerHTML = '<p>Add Gabru Badminton to your home screen from your browser menu for one-tap access and match notifications.</p>';
+    }
+    return box.classList.remove('hidden');
+  }
+
+  // Installed - nudge notifications if they're not on yet.
+  if (!pushSupported || Notification.permission === 'denied') return hide();
+  if (Notification.permission === 'granted' && swRegistration){
+    const sub = await swRegistration.pushManager.getSubscription();
+    if (sub) return hide();
+  }
+
+  title.textContent = '🔔 Turn on notifications';
+  body.innerHTML = '<p>Get a heads up when a session fills up, gets cancelled, or a spot opens.</p>';
+  actions.replaceChildren();
+  const btn = document.createElement('button');
+  btn.className = 'prompt-btn';
+  btn.textContent = 'Enable notifications';
+  btn.addEventListener('click', async () => {
+    await enablePushNotifications();
+    refreshInstallPrompt();
+  });
+  actions.appendChild(btn);
+  box.classList.remove('hidden');
+}
+
 function initApp(){
   refreshAdminUI();
   renderCalendar();
 
-  registerServiceWorker().then(() => checkNotificationStatus());
+  registerServiceWorker().then(() => {
+    checkNotificationStatus();
+    refreshInstallPrompt();
+  });
   clearAppBadgeEverywhere();
   openSessionFromUrl();
 
@@ -1666,7 +1814,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   delegateNameAction('rosterListUI', 'data-remove-regular', removeRegular);
   delegateNameAction('adminListUI', 'data-demote', demoteAdmin);
 
+  // Migrate anyone still holding the old sessionStorage flag so they don't get
+  // asked for the password one final time after this ships.
   if (sessionStorage.getItem('gabruAuthed') === 'true'){
+    localStorage.setItem('gabruAuthed', 'true');
+    sessionStorage.removeItem('gabruAuthed');
+  }
+
+  if (localStorage.getItem('gabruAuthed') === 'true'){
     document.getElementById('gateScreen').classList.add('hidden');
     await enterApp();
   }

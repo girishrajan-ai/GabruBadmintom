@@ -113,16 +113,22 @@ self.addEventListener('push', (event) => {
     renotify: data.tag ? true : undefined,
   };
 
+  // iOS revokes push permission if a push event ever resolves without showing
+  // a notification, so showNotification must always run and must never be
+  // blocked by the badge update failing. Promise.all rejects as soon as either
+  // side does; the badge is best-effort and is swallowed separately.
   event.waitUntil(
-    Promise.all([
-      self.registration.showNotification(title, options),
-      bumpBadge(),
-    ])
+    (async () => {
+      await self.registration.showNotification(title, options);
+      await bumpBadge();
+    })()
   );
 });
 
 async function bumpBadge(){
-  if (!('setAppBadge' in self.navigator)) return;
+  // Safari exposes setAppBadge on the service worker's navigator only for an
+  // installed PWA; elsewhere it may be missing entirely.
+  if (!self.navigator || !('setAppBadge' in self.navigator)) return;
   try {
     const count = (await getBadgeCount()) + 1;
     await setBadgeCount(count);

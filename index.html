@@ -1564,20 +1564,37 @@ async function disablePushNotifications(){
 }
 
 async function enablePushNotifications(){
-  if (!swRegistration){
-    await registerServiceWorker();
+  // iOS Safari only supports push from an installed PWA - in a plain tab the
+  // APIs are either missing or subscribe() throws something generic, so check
+  // this first and say what's actually wrong.
+  if (isIOS() && !isStandalone()){
+    alert('On iPhone, notifications only work once the app is added to your home screen.\n\nTap the Share button in Safari, then "Add to Home Screen", and open it from there.');
+    return;
   }
-  if (!swRegistration){
+
+  if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)){
     alert('Notifications are not supported on this browser.');
     return;
   }
 
   try {
+    // Must be the FIRST thing in the click handler with no await before it.
+    // Safari (iOS especially) only honours requestPermission() while the
+    // transient user activation from the tap is still alive - awaiting
+    // anything first consumes it and the prompt silently never appears,
+    // which is why enabling notifications did nothing on iPhone.
     const permission = await Notification.requestPermission();
     if (permission !== 'granted'){
       alert('Notifications were not enabled. You can turn them on later from your browser settings.');
       return;
     }
+
+    // Only now register/await the service worker. `ready` guarantees an
+    // active worker - subscribing against a still-installing registration
+    // fails on Safari.
+    if (!swRegistration) await registerServiceWorker();
+    const reg = await navigator.serviceWorker.ready;
+    swRegistration = reg;
 
     const keyRes = await fetch('/api/push');
     const keyData = await keyRes.json();
@@ -1586,10 +1603,13 @@ async function enablePushNotifications(){
       return;
     }
 
-    const subscription = await swRegistration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(keyData.publicKey),
-    });
+    // Reuse an existing subscription if there is one - calling subscribe()
+    // twice with the same key is fine, but this avoids a needless round trip.
+    const subscription = await reg.pushManager.getSubscription()
+      || await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(keyData.publicKey),
+      });
 
     const currentName = loadName();
     const subscribeRes = await fetch('/api/push', {
@@ -1794,16 +1814,23 @@ function openSessionFromUrl(){
   openModal(key, getAttendees(key), isCancelled(key));
 }
 
-function clearAppBadgeEverywhere(){
-  // Clear directly if the Badging API is available on this page context
+async function clearAppBadgeEverywhere(){
+  // Clear directly if the Badging API is available on this page context.
+  // iOS only exposes it to an installed PWA, hence the catch.
   if ('clearAppBadge' in navigator){
-    navigator.clearAppBadge().catch(() => {});
+    try { await navigator.clearAppBadge(); } catch (e) {}
   }
-  // Also tell the service worker to reset its stored count, so a later
-  // push starts counting from 0 again instead of continuing an old total.
-  if (swRegistration && swRegistration.active){
-    swRegistration.active.postMessage({ type: 'CLEAR_BADGE' });
-  }
+  // Also tell the service worker to reset its stored count, so a later push
+  // starts from 0 instead of continuing an old total. `ready` is used rather
+  // than the cached swRegistration.active, which is frequently null on the
+  // first load (and always null while a new worker is still activating) -
+  // the message was being dropped and the stored count kept growing.
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const worker = reg.active || navigator.serviceWorker.controller;
+    if (worker) worker.postMessage({ type: 'CLEAR_BADGE' });
+  } catch (e) {}
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
